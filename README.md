@@ -9,15 +9,19 @@ validated managed root.
 
 ## Current status
 
-The repository contains the first loadable plugin shell:
+The current vertical slice provides:
 
-- Playnite library-plugin entry point;
-- provider and source-package contracts;
+- a loadable Playnite library plugin with provider-neutral contracts;
 - one managed storage root with `Games`, `Staging`, and `Cache` children;
-- settings validation that rejects relative paths and filesystem roots.
+- Google OAuth desktop-app authorization with PKCE and state validation;
+- Windows-user-bound encryption for access and refresh tokens;
+- recursive, paginated, read-only discovery of ZIP, 7z, and RAR archives;
+- stable Playnite game IDs based on provider, account, and Drive object IDs;
+- streamed Drive downloads exposed to the future installer pipeline.
 
-Google Drive authentication and read-only discovery are the next vertical
-slice. Installation, cloud deletion, and source mutation are not implemented.
+Google Drive credentials and authorization are supplied by the player. Cloud
+Source does not modify or delete cloud files. Archive extraction, transactional
+installation, launch configuration, and local uninstall are not implemented yet.
 
 ## Build
 

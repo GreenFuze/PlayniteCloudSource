@@ -55,7 +55,7 @@ namespace CloudSource.Playnite
                     window.DialogResult = true;
                 },
                 () => window.DialogResult = false,
-                message => dialogs.ShowErrorMessage(message, "Cloud Source"));
+                message => dialogs.ShowErrorMessage(message, CloudStorageProduct.DisplayName));
             window.Content = new GoogleDriveFolderPickerView
             {
                 DataContext = viewModel

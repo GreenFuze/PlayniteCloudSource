@@ -1,5 +1,6 @@
 using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Providers.GoogleDrive;
+using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Storage;
 using Playnite.SDK;
 using Playnite.SDK.Events;
@@ -22,12 +23,15 @@ namespace CloudSource.Playnite
         private readonly HttpClient httpClient;
         private readonly GoogleDriveConnectionService googleDriveConnection;
         private readonly GoogleDriveFolderPickerDialog googleDriveFolderPicker;
+        private readonly CloudArchiveClassifier archiveClassifier;
+        private readonly CloudGameMetadataFactory metadataFactory;
+        private readonly CloudStorageLibraryMigrator libraryMigrator;
         private readonly ProviderRegistry providerRegistry;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
 
         public override Guid Id => PluginId;
-        public override string Name => "Cloud Source";
+        public override string Name => CloudStorageProduct.DisplayName;
         public CloudSourceSettingsViewModel SettingsViewModel { get; }
 
         public CloudSourcePlugin(IPlayniteAPI playniteApi)
@@ -42,6 +46,13 @@ namespace CloudSource.Playnite
                 Path.Combine(GetPluginUserDataPath(), "google-drive.token"),
                 PluginId);
             googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
+            var titleNormalizer = new GameTitleNormalizer();
+            archiveClassifier = new CloudArchiveClassifier();
+            metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier);
+            libraryMigrator = new CloudStorageLibraryMigrator(
+                PlayniteApi.Database,
+                titleNormalizer,
+                archiveClassifier);
             SettingsViewModel = new CloudSourceSettingsViewModel(this);
             var googleDriveApi = new GoogleDriveApiClient(httpClient, googleDriveConnection);
             var googleDriveFolderBrowser = new GoogleDriveFolderBrowser(googleDriveApi);
@@ -71,7 +82,7 @@ namespace CloudSource.Playnite
             }
 
             var configuredProviders = providerRegistry.GetConfiguredProviders();
-            Logger.Info($"Cloud Source scan requested with {configuredProviders.Count} configured provider(s).");
+            Logger.Info($"{CloudStorageProduct.DisplayName} scan requested with {configuredProviders.Count} configured provider(s).");
             if (configuredProviders.Count == 0)
             {
                 return Enumerable.Empty<GameMetadata>();
@@ -97,14 +108,21 @@ namespace CloudSource.Playnite
                         .ScanAsync(request, args.CancelToken)
                         .GetAwaiter()
                         .GetResult();
-                    games.AddRange(packages.Select(ToGameMetadata));
+                    var importablePackages = packages.Where(archiveClassifier.ShouldImport).ToList();
+                    var skippedPackages = packages.Count - importablePackages.Count;
+                    if (skippedPackages > 0)
+                    {
+                        Logger.Info($"{CloudStorageProduct.DisplayName} skipped {skippedPackages} non-game archive(s).");
+                    }
+
+                    games.AddRange(importablePackages.Select(metadataFactory.Create));
                     continue;
                 }
 
                 throw new InvalidOperationException($"Provider '{provider.Id}' has no Playnite import adapter.");
             }
 
-            Logger.Info($"Cloud Source discovered {games.Count} archive package(s).");
+            Logger.Info($"{CloudStorageProduct.DisplayName} discovered {games.Count} game archive package(s).");
             return games;
         }
 
@@ -125,18 +143,26 @@ namespace CloudSource.Playnite
                 out var layout,
                 out var error))
             {
-                Logger.Error($"Cloud Source managed root is invalid: {error}");
+                Logger.Error($"{CloudStorageProduct.DisplayName} managed root is invalid: {error}");
                 return;
             }
 
             try
             {
                 layout.EnsureCreated();
-                Logger.Info($"Cloud Source managed root ready at {layout.RootPath}.");
+                Logger.Info($"{CloudStorageProduct.DisplayName} managed root ready at {layout.RootPath}.");
             }
             catch (Exception exception)
             {
-                Logger.Error(exception, "Cloud Source could not initialize its managed root.");
+                Logger.Error(exception, $"{CloudStorageProduct.DisplayName} could not initialize its managed root.");
+            }
+
+            var migration = libraryMigrator.Migrate();
+            if (migration.Changed)
+            {
+                Logger.Info(
+                    $"{CloudStorageProduct.DisplayName} migrated {migration.RenamedSources} source(s), " +
+                    $"cleaned {migration.CleanedTitles} title(s), and assigned {migration.AssignedPlatforms} platform(s).");
             }
         }
 
@@ -178,26 +204,7 @@ namespace CloudSource.Playnite
 
         internal void ShowError(string message)
         {
-            PlayniteApi.Dialogs.ShowErrorMessage(message, "Cloud Source");
-        }
-
-        private static GameMetadata ToGameMetadata(SourcePackage package)
-        {
-            var name = Path.GetFileNameWithoutExtension(package.DisplayName);
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                throw new InvalidDataException($"Cloud package '{package.StableId}' has no usable game name.");
-            }
-
-            return new GameMetadata
-            {
-                GameId = package.StableId,
-                Name = name,
-                Description = $"Cloud archive: {package.LogicalPath}",
-                IsInstalled = false,
-                Source = new MetadataNameProperty("Cloud Source"),
-                Version = package.Revision
-            };
+            PlayniteApi.Dialogs.ShowErrorMessage(message, CloudStorageProduct.DisplayName);
         }
     }
 }

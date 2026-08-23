@@ -350,7 +350,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         private static async Task WriteBrowserResponseAsync(Stream stream, bool success, string message)
         {
-            var title = success ? "Cloud Source connected" : "Cloud Source connection failed";
+            var title = success ? "Cloud Storage connected" : "Cloud Storage connection failed";
             var body = $"<!doctype html><html><head><meta charset=\"utf-8\"><title>{WebUtility.HtmlEncode(title)}</title></head>" +
                        $"<body style=\"font:16px system-ui;margin:3rem\"><h1>{WebUtility.HtmlEncode(title)}</h1>" +
                        $"<p>{WebUtility.HtmlEncode(message)}</p></body></html>";

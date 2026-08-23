@@ -15,7 +15,7 @@ namespace CloudSource.Playnite
         private string managedRootPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Games",
-            "Cloud Source");
+            CloudStorageProduct.DisplayName);
         private bool googleDriveEnabled;
         private string googleDriveClientId;
         private string googleDriveClientSecret;

@@ -10,7 +10,7 @@
         <StackPanel Margin="12">
             <TextBlock FontSize="16" FontWeight="SemiBold" Text="Managed storage" />
             <TextBlock Margin="0,8,0,8" TextWrapping="Wrap"
-                       Text="Cloud Source keeps installed games, staging files, and its cache below one managed root." />
+                        Text="Cloud Storage keeps installed games, staging files, and its cache below one managed root." />
             <TextBlock Text="Managed root" />
             <TextBox Margin="0,4,0,0"
                      Text="{Binding Settings.ManagedRootPath, UpdateSourceTrigger=PropertyChanged}" />
@@ -20,7 +20,7 @@
             <Separator Margin="0,20,0,16" />
             <TextBlock FontSize="16" FontWeight="SemiBold" Text="Google Drive" />
             <TextBlock Margin="0,8,0,12" TextWrapping="Wrap"
-                       Text="The first provider is read-only. Cloud Source discovers ZIP, 7z, and RAR archives and never deletes them during local uninstall." />
+                        Text="The first provider is read-only. Cloud Storage discovers ZIP, 7z, and RAR archives and never deletes them during local uninstall." />
 
             <TextBlock Text="OAuth desktop client ID" />
             <TextBox Margin="0,4,0,8"
@@ -49,7 +49,7 @@
                 </DockPanel>
             </Border>
             <TextBlock Margin="0,0,0,8" Opacity="0.7" TextWrapping="Wrap"
-                       Text="Choose a concrete folder from My Drive or Shared with me. Cloud Source stores its stable Drive ID, so renaming the folder does not redirect the source." />
+                       Text="Choose a concrete folder from My Drive or Shared with me. Cloud Storage stores its stable Drive ID, so renaming the folder does not redirect the source." />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

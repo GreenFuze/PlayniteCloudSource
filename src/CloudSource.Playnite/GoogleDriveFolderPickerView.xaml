@@ -17,7 +17,7 @@
         <StackPanel Grid.Row="0">
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Choose a game archive folder" />
             <TextBlock Margin="0,6,0,0" Opacity="0.75" TextWrapping="Wrap"
-                       Text="Cloud Source scans only the concrete folder you choose. My Drive root and the Shared with me collection cannot be selected." />
+                       Text="Cloud Storage scans only the concrete folder you choose. My Drive root and the Shared with me collection cannot be selected." />
         </StackPanel>
 
         <Border Grid.Row="1" Margin="0,14,0,0" Padding="10" BorderThickness="1" BorderBrush="#40708090">

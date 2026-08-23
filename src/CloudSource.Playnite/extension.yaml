@@ -1,6 +1,6 @@
 Id: CloudSource_a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2
-Name: Cloud Source
+Name: Cloud Storage
 Author: GreenFuze
-Version: 0.1.0
+Version: 0.2.0
 Module: CloudSource.Playnite.dll
 Type: GameLibrary

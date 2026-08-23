@@ -36,6 +36,10 @@ namespace CloudSource.Playnite
 
         public override Guid Id => PluginId;
         public override string Name => CloudStorageProduct.DisplayName;
+        public override string LibraryIcon => Path.Combine(
+            Path.GetDirectoryName(typeof(CloudSourcePlugin).Assembly.Location),
+            "Resources",
+            "cloud-storage.png");
         public CloudSourceSettingsViewModel SettingsViewModel { get; }
 
         public CloudSourcePlugin(IPlayniteAPI playniteApi)

@@ -14,6 +14,20 @@
     <PackageReference Include="PlayniteSDK" Version="6.16.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
+    <!-- Playnite extensions cannot load a different version of an assembly
+         already loaded by Playnite. Compile against the host's version and do
+         not package a second SharpCompress.dll. See architecture decision 0005. -->
+    <PackageReference Include="SharpCompress" Version="0.26.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- These advisories affect SharpCompress extraction helpers that this
+       plugin deliberately does not call. Our guarded write path is documented
+       in architecture decision 0005. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-6c8g-7p36-r338" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jp7f-grcv-6mjf" />
   </ItemGroup>
 
   <ItemGroup>

@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading;
 
 namespace CloudSource.Playnite.Tests
 {
@@ -20,6 +21,8 @@ namespace CloudSource.Playnite.Tests
             {
                 ExtractsWrapperAndSelectsGameExecutable(root);
                 RejectsTraversal(root);
+                ExtractsSevenZipAndRar(root);
+                RejectsRarLinks(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
                 ReconcilesOnlyAnAuthoritativeProviderAccountScope();
                 Console.WriteLine("All Cloud Storage tests passed.");
@@ -33,6 +36,49 @@ namespace CloudSource.Playnite.Tests
             finally
             {
                 if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        private static void ExtractsSevenZipAndRar(string root)
+        {
+            var sevenZipPath = WriteFixture(
+                root,
+                "sevenzip-t1.7z",
+                "N3q8ryccAARTpfDIYgAAAAAAAAAgAAAAAAAAAMDMhcxiYXIKZm9vCgAAgTMHrjGYapZFTXUTjwzctMaE+1oPqd0uzZmXHJ6j4QB74vYCpg9q7Ktujb3oJ3hy4W538W7Jb5vgkQYVBSEqe1ACMsErIekjytgvhTh7gy6cjpHQfsAAABcGCAEJWgAHCwEAASMDAQEFXQAQAAAMZgoB3ZHz8QAA");
+            var sevenZipRoot = Path.Combine(root, "sevenzip-content");
+            var sevenZipResult = new SafeSharpCompressExtractor(SourcePackageKind.SevenZipArchive)
+                .Extract(sevenZipPath, sevenZipRoot, CancellationToken.None);
+            Assert(File.Exists(Path.Combine(sevenZipResult.PayloadRoot, "bar")), "7z file 'bar' was not extracted.");
+            Assert(File.Exists(Path.Combine(sevenZipResult.PayloadRoot, "foo")), "7z file 'foo' was not extracted.");
+
+            var rarPath = WriteFixture(
+                root,
+                "rar5-subdirs.rar",
+                "UmFyIRoHAQDz4YLrCwEFBwAGAQGAgIAAWyrxsjACAwuGAASGAKSDAsekBMmAAAESc3ViL2RpcjIvZmlsZTIudHh0CgMTCNwVX4XkBhNmaWxlMgokNHkgOAIDC4gABIgApIMCfSS3cYAAARpzdWIvd2l0aCBzcGFjZS9sb25nIGZuLnR4dAoDEyncFV9mv8sdbG9uZyBmbgoOjzxzOAIDC4UABIUApIMCwYnsL4AAARpzdWIvw7zItcSpw7bhuIvDqC9maWxlLnR4dAoDE0TdFV+dEHMIZmlsZQqvrxG4MAIDC4YABIYApIMCBPcp4oAAARJzdWIvZGlyMS9maWxlMS50eHQKAxP92xVfHJEnNGZpbGUxCtVl6Z4kAgMLAAUA7YMBAAAAAIAAAQhzdWIvZGlyMgoDEwjcFV/ICfsT1nxQqSoCAwsABQDtgwEAAAAAgAABDnN1Yi93aXRoIHNwYWNlCgMTKdwVX1vbgh6UOOweJQIDCwAFAO2DAQAAAACAAAEJc3ViL2VtcHR5CgMT5dsVX/bv4ArIG6fPLQIDCwAFAO2DAQAAAACAAAERc3ViL8O8yLXEqcO24biLw6gKAxNE3RVfmSwqCYEdQEkkAgMLAAUA7YMBAAAAAIAAAQhzdWIvZGlyMQoDE/3bFV8Nrd40msCgER8CAwsABQDtgwEAAAAAgAABA3N1YgoDEzLdFV+8OWMOHXdWUQMFBAA=");
+            var rarRoot = Path.Combine(root, "rar-content");
+            var rarResult = new SafeSharpCompressExtractor(SourcePackageKind.RarArchive)
+                .Extract(rarPath, rarRoot, CancellationToken.None);
+            Assert(
+                File.Exists(Path.Combine(rarResult.PayloadRoot, "dir1", "file1.txt")),
+                "RAR nested file was not extracted.");
+        }
+
+        private static void RejectsRarLinks(string root)
+        {
+            var archivePath = WriteFixture(
+                root,
+                "rar5-symlink-unix.rar",
+                "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgABuR35XMgIDGAAECP/DAgAAAACAQAEJZGF0YV9saW5rCgMTBuQdXzlDegcMBQEACGRhdGEudHh0/Yr6ESYCAwuFAASFALSDAoLFweaAQAEIZGF0YS50eHQKAxPt4x1f8MPfIWRhdGEKXgUHFDgCAxwABAz/wwIAAAAAgEABC3JhbmRvbV9saW5rCgMTSOgdX2WpcDUQBQEADC4uL3JhbmRvbTEyMx13VlEDBQQA");
+            try
+            {
+                new SafeSharpCompressExtractor(SourcePackageKind.RarArchive).Extract(
+                    archivePath,
+                    Path.Combine(root, "rar-link-content"),
+                    CancellationToken.None);
+                throw new InvalidOperationException("RAR links were accepted.");
+            }
+            catch (InvalidDataException)
+            {
             }
         }
 
@@ -77,10 +123,10 @@ namespace CloudSource.Playnite.Tests
             layout.EnsureCreated();
             Func<ManagedStorageLayout> layoutFactory = () => layout;
             var manifestStore = new InstallationManifestStore(layoutFactory);
-            var installer = new ManagedZipInstaller(
+            var installer = new ManagedArchiveInstaller(
                 layoutFactory,
                 new ProviderRegistry(Array.Empty<ICloudSourceProvider>()),
-                new SafeZipExtractor(),
+                new ArchiveExtractorRegistry(new IArchiveExtractor[] { new SafeZipExtractor() }),
                 new LaunchTargetResolver(new GameTitleNormalizer()),
                 manifestStore);
 
@@ -174,6 +220,13 @@ namespace CloudSource.Playnite.Tests
         {
             var entry = archive.CreateEntry(path);
             using (var writer = new StreamWriter(entry.Open())) writer.Write(contents);
+        }
+
+        private static string WriteFixture(string root, string fileName, string base64)
+        {
+            var path = Path.Combine(root, fileName);
+            File.WriteAllBytes(path, Convert.FromBase64String(base64));
+            return path;
         }
 
         private static void Assert(bool condition, string message)

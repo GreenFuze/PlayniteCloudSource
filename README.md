@@ -21,18 +21,18 @@ The current vertical slice provides:
 - recursive, paginated, read-only discovery of ZIP, 7z, and RAR archives;
 - stable Playnite game IDs based on provider, account, and Drive object IDs;
 - streamed Drive downloads;
-- transactional ZIP installation into the managed `Games` directory;
-- ZIP traversal/link/size validation and MGA-style executable selection;
+- transactional ZIP, 7z, and RAR installation into the managed `Games` directory;
+- traversal/link/encryption/size validation and MGA-style executable selection;
 - manifest-validated launch and uninstall actions;
 - authoritative successful-scan reconciliation: missing uninstalled games are
   removed, while installed games are retained and tagged as source unavailable.
 
 Google Drive credentials, authorization, and a concrete source folder are
 supplied by the player. Drive roots are browse-only to prevent accidental
-whole-drive imports. Cloud Storage does not modify or delete cloud files. ZIP
-games are installed and removed locally; 7z and RAR installation and an
-ambiguity picker for packages with multiple equally plausible executables remain
-follow-up work.
+whole-drive imports. Cloud Storage does not modify or delete cloud files. Game
+archives are installed and removed locally; password-protected and multi-volume
+archives are rejected. An ambiguity picker for packages with multiple equally
+plausible executables remains follow-up work.
 
 Generic Playnite metadata providers can identify ordinary PC and console titles
 after normalization. Arcade archives that use MAME machine IDs require a MAME

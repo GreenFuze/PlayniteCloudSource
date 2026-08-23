@@ -8,7 +8,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CloudSource.Playnite\CloudSource.Playnite.csproj" />
     <PackageReference Include="PlayniteSDK" Version="6.16.0" />
+    <PackageReference Include="SharpCompress" Version="0.26.0" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-6c8g-7p36-r338" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jp7f-grcv-6mjf" />
   </ItemGroup>
 </Project>

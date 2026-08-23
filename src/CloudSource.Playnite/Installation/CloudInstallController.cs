@@ -12,10 +12,10 @@ namespace CloudSource.Playnite.Installation
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
         private readonly IPlayniteAPI playniteApi;
-        private readonly ManagedZipInstaller installer;
+        private readonly ManagedArchiveInstaller installer;
         private readonly SourcePackage package;
 
-        public CloudInstallController(Game game, IPlayniteAPI playniteApi, ManagedZipInstaller installer, SourcePackage package)
+        public CloudInstallController(Game game, IPlayniteAPI playniteApi, ManagedArchiveInstaller installer, SourcePackage package)
             : base(game)
         {
             this.playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));

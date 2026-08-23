@@ -31,7 +31,7 @@ namespace CloudSource.Playnite
         private readonly CloudPackageResolver packageResolver;
         private readonly InstallationManifestStore manifestStore;
         private readonly CloudLibraryReconciler libraryReconciler;
-        private readonly ManagedZipInstaller zipInstaller;
+        private readonly ManagedArchiveInstaller archiveInstaller;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
 
@@ -81,10 +81,15 @@ namespace CloudSource.Playnite
                 manifestStore,
                 new CloudLibraryReconciliationPlanner());
             metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier, manifestStore);
-            zipInstaller = new ManagedZipInstaller(
+            archiveInstaller = new ManagedArchiveInstaller(
                 GetManagedStorageLayout,
                 providerRegistry,
-                new SafeZipExtractor(),
+                new ArchiveExtractorRegistry(new IArchiveExtractor[]
+                {
+                    new SafeZipExtractor(),
+                    new SafeSharpCompressExtractor(SourcePackageKind.SevenZipArchive),
+                    new SafeSharpCompressExtractor(SourcePackageKind.RarArchive)
+                }),
                 new LaunchTargetResolver(titleNormalizer),
                 manifestStore);
 
@@ -187,7 +192,7 @@ namespace CloudSource.Playnite
                 yield break;
             }
 
-            yield return new CloudInstallController(args.Game, PlayniteApi, zipInstaller, package);
+            yield return new CloudInstallController(args.Game, PlayniteApi, archiveInstaller, package);
         }
 
         public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
@@ -197,7 +202,7 @@ namespace CloudSource.Playnite
                 yield break;
             }
 
-            yield return new CloudUninstallController(args.Game, PlayniteApi, zipInstaller);
+            yield return new CloudUninstallController(args.Game, PlayniteApi, archiveInstaller);
         }
 
         public override IEnumerable<PlayController> GetPlayActions(GetPlayActionsArgs args)

@@ -9,24 +9,24 @@ using System.Threading;
 
 namespace CloudSource.Playnite.Installation
 {
-    internal sealed class ManagedZipInstaller
+    internal sealed class ManagedArchiveInstaller
     {
         private readonly Func<ManagedStorageLayout> layoutFactory;
         private readonly ProviderRegistry providerRegistry;
-        private readonly SafeZipExtractor extractor;
+        private readonly ArchiveExtractorRegistry extractorRegistry;
         private readonly LaunchTargetResolver launchTargetResolver;
         private readonly InstallationManifestStore manifestStore;
 
-        public ManagedZipInstaller(
+        public ManagedArchiveInstaller(
             Func<ManagedStorageLayout> layoutFactory,
             ProviderRegistry providerRegistry,
-            SafeZipExtractor extractor,
+            ArchiveExtractorRegistry extractorRegistry,
             LaunchTargetResolver launchTargetResolver,
             InstallationManifestStore manifestStore)
         {
             this.layoutFactory = layoutFactory ?? throw new ArgumentNullException(nameof(layoutFactory));
             this.providerRegistry = providerRegistry ?? throw new ArgumentNullException(nameof(providerRegistry));
-            this.extractor = extractor ?? throw new ArgumentNullException(nameof(extractor));
+            this.extractorRegistry = extractorRegistry ?? throw new ArgumentNullException(nameof(extractorRegistry));
             this.launchTargetResolver = launchTargetResolver ?? throw new ArgumentNullException(nameof(launchTargetResolver));
             this.manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         }
@@ -34,10 +34,7 @@ namespace CloudSource.Playnite.Installation
         public InstallationRecord Install(SourcePackage package, string gameName, CancellationToken cancellationToken)
         {
             if (package == null) throw new ArgumentNullException(nameof(package));
-            if (package.Kind != SourcePackageKind.ZipArchive)
-            {
-                throw new NotSupportedException("The first installer slice supports ZIP games only.");
-            }
+            var extractor = extractorRegistry.GetRequired(package.Kind);
 
             var existing = manifestStore.Find(package.StableId);
             if (existing != null) return existing;
@@ -48,9 +45,12 @@ namespace CloudSource.Playnite.Installation
             Directory.CreateDirectory(stageRoot);
             try
             {
-                var archivePath = Path.Combine(stageRoot, "package.zip");
+                var archivePath = Path.Combine(stageRoot, "package" + GetArchiveExtension(package.Kind));
                 var download = Download(package, archivePath, cancellationToken);
-                var extraction = extractor.Extract(archivePath, Path.Combine(stageRoot, "content"));
+                var extraction = extractor.Extract(
+                    archivePath,
+                    Path.Combine(stageRoot, "content"),
+                    cancellationToken);
                 var launchTarget = launchTargetResolver.Resolve(extraction.PayloadRoot, gameName);
                 var destination = SelectDestination(layout.GamesPath, gameName, package.StableId);
                 var manifest = new InstallManifest
@@ -75,6 +75,17 @@ namespace CloudSource.Playnite.Installation
             finally
             {
                 if (Directory.Exists(stageRoot)) Directory.Delete(stageRoot, true);
+            }
+        }
+
+        private static string GetArchiveExtension(SourcePackageKind kind)
+        {
+            switch (kind)
+            {
+                case SourcePackageKind.ZipArchive: return ".zip";
+                case SourcePackageKind.SevenZipArchive: return ".7z";
+                case SourcePackageKind.RarArchive: return ".rar";
+                default: throw new NotSupportedException($"Cloud Storage cannot stage archive kind '{kind}'.");
             }
         }
 

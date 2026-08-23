@@ -79,7 +79,7 @@ namespace CloudSource.Playnite.Installation
 
             var path = Path.Combine(directory, FileName);
             if (!TryReadManifest(path, out var manifest) || manifest == null ||
-                manifest.SchemaVersion != 1 ||
+                (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) ||
                 !string.Equals(manifest.GameId, expectedGameId, StringComparison.Ordinal) ||
                 string.IsNullOrWhiteSpace(manifest.LaunchTarget))
             {
@@ -96,6 +96,16 @@ namespace CloudSource.Playnite.Installation
 
             record = new InstallationRecord(directory, manifest);
             return true;
+        }
+
+        public void RemoveManifest(string installDirectory)
+        {
+            if (!IsManagedGameDirectory(installDirectory))
+                throw new InvalidDataException("The installation directory is outside the managed Games directory.");
+            var path = Path.Combine(installDirectory, FileName);
+            if (File.Exists(path)) File.Delete(path);
+            if (Directory.Exists(installDirectory) && !Directory.EnumerateFileSystemEntries(installDirectory).Any())
+                Directory.Delete(installDirectory);
         }
 
         private static bool TryReadManifest(string path, out InstallManifest manifest)

@@ -81,36 +81,55 @@ namespace CloudSource.Playnite.Installation
                     entries.Select(CreateDescriptor),
                     archiveLabel);
 
+                var targets = plan.Entries.ToDictionary(
+                    target => NormalizeKey(target.Key),
+                    target => target,
+                    StringComparer.OrdinalIgnoreCase);
+                var processed = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 long extractedBytes = 0;
                 reportProgress?.Invoke(0, plan.ExpandedBytes);
 
-                foreach (var target in plan.Entries)
+                using (var reader = archive.ExtractAllEntries())
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (target.IsDirectory)
+                    while (reader.MoveToNextEntry())
                     {
-                        Directory.CreateDirectory(target.Destination);
-                        continue;
-                    }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var key = NormalizeKey(reader.Entry.Key);
+                        if (!targets.TryGetValue(key, out var target) || !processed.Add(key))
+                            throw new InvalidDataException($"{archiveLabel} reader returned an unexpected entry: {reader.Entry.Key}");
+                        if (target.IsDirectory)
+                        {
+                            Directory.CreateDirectory(target.Destination);
+                            continue;
+                        }
 
-                    using (var input = entries[target.Index].OpenEntryStream())
-                    {
-                        var completedBeforeEntry = extractedBytes;
-                        fileWriter.Write(
-                            input,
-                            target.Destination,
-                            target.Size,
-                            completedInEntry => reportProgress?.Invoke(
-                                completedBeforeEntry + completedInEntry,
-                                plan.ExpandedBytes),
-                            cancellationToken);
-                    }
+                        using (var input = reader.OpenEntryStream())
+                        {
+                            var completedBeforeEntry = extractedBytes;
+                            fileWriter.Write(
+                                input,
+                                target.Destination,
+                                target.Size,
+                                completedInEntry => reportProgress?.Invoke(
+                                    completedBeforeEntry + completedInEntry,
+                                    plan.ExpandedBytes),
+                                cancellationToken);
+                        }
 
-                    extractedBytes += target.Size;
+                        extractedBytes += target.Size;
+                    }
                 }
+
+                if (processed.Count != plan.Entries.Count)
+                    throw new InvalidDataException($"{archiveLabel} reader did not return every validated entry.");
 
                 return extractionPolicy.Complete(extractionRoot, plan.ExpandedBytes);
             }
+        }
+
+        private static string NormalizeKey(string key)
+        {
+            return (key ?? string.Empty).Replace('\\', '/').TrimEnd('/');
         }
 
         private static ArchiveEntryDescriptor CreateDescriptor(IArchiveEntry entry, int index)

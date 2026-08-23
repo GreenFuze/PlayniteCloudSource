@@ -28,6 +28,7 @@ namespace CloudSource.Playnite
         private readonly CloudGameMetadataFactory metadataFactory;
         private readonly CloudStorageLibraryMigrator libraryMigrator;
         private readonly ProviderRegistry providerRegistry;
+        private readonly SourcePackageCatalog packageCatalog;
         private readonly CloudPackageResolver packageResolver;
         private readonly InstallationManifestStore manifestStore;
         private readonly CloudLibraryReconciler libraryReconciler;
@@ -74,7 +75,8 @@ namespace CloudSource.Playnite
                 googleDriveConnection,
                 googleDriveApi);
             providerRegistry = new ProviderRegistry(new[] { googleDriveProvider });
-            packageResolver = new CloudPackageResolver();
+            packageCatalog = new SourcePackageCatalog();
+            packageResolver = new CloudPackageResolver(packageCatalog);
             manifestStore = new InstallationManifestStore(GetManagedStorageLayout);
             libraryReconciler = new CloudLibraryReconciler(
                 PlayniteApi.Database,
@@ -136,6 +138,7 @@ namespace CloudSource.Playnite
                         .GetAwaiter()
                         .GetResult();
                     var importablePackages = packages.Where(archiveClassifier.ShouldImport).ToList();
+                    packageCatalog.ReplaceScope(provider.Id, settings.GoogleDriveAccountId, importablePackages);
                     var skippedPackages = packages.Count - importablePackages.Count;
                     if (skippedPackages > 0)
                     {
@@ -203,6 +206,69 @@ namespace CloudSource.Playnite
             }
 
             yield return new CloudUninstallController(args.Game, PlayniteApi, archiveInstaller);
+        }
+
+        public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
+        {
+            if (args?.Games == null || args.Games.Count != 1)
+            {
+                yield break;
+            }
+
+            var game = args.Games[0];
+            if (game.PluginId != PluginId || !game.IsInstalled ||
+                !archiveInstaller.CanCompleteExtractedInstaller(game.GameId, game.InstallDirectory))
+            {
+                yield break;
+            }
+
+            yield return new GameMenuItem
+            {
+                Description = "Complete extracted installer package",
+                MenuSection = "Cloud Storage",
+                Action = _ => CompleteExtractedInstaller(game)
+            };
+        }
+
+        private void CompleteExtractedInstaller(Game game)
+        {
+            try
+            {
+                InstallationRecord record = null;
+                var result = PlayniteApi.Dialogs.ActivateGlobalProgress(
+                    progressArgs =>
+                    {
+                        record = archiveInstaller.CompleteExtractedInstaller(
+                            game.GameId,
+                            game.InstallDirectory,
+                            game.Name,
+                            request => CloudInstallController.ConfirmInstaller(PlayniteApi, progressArgs, request),
+                            update => CloudInstallController.UpdateProgress(progressArgs, update),
+                            progressArgs.CancelToken);
+                        return Task.CompletedTask;
+                    },
+                    new GlobalProgressOptions($"Completing installation of {game.Name}", true)
+                    {
+                        IsIndeterminate = false
+                    });
+                // A visible native installer cannot be safely terminated by the plugin. If it
+                // completed successfully, retain its result even if Cancel was clicked meanwhile.
+                if ((result.Canceled || result.Error is OperationCanceledException) && record == null) return;
+                if (result.Error != null) throw result.Error;
+                if (record == null) throw new InvalidOperationException("Installer completion returned no installation record.");
+                game.InstallDirectory = record.InstallDirectory;
+                game.InstallSize = (ulong)record.Manifest.InstalledSizeBytes;
+                game.IsInstalled = true;
+                PlayniteApi.Database.Games.Update(game);
+            }
+            catch (Exception exception)
+            {
+                Logger.Error(exception, $"Cloud Storage could not complete extracted installer package for {game.Name}.");
+                PlayniteApi.Notifications.Add(
+                    "cloud-storage-complete-installer-" + game.Id,
+                    $"Cloud Storage could not complete {game.Name}: {exception.GetBaseException().Message}",
+                    NotificationType.Error);
+            }
         }
 
         public override IEnumerable<PlayController> GetPlayActions(GetPlayActionsArgs args)

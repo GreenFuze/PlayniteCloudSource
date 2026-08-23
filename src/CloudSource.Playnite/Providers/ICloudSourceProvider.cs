@@ -18,5 +18,10 @@ namespace CloudSource.Playnite.Providers
         Task<Stream> OpenReadAsync(
             SourcePackage package,
             CancellationToken cancellationToken);
+
+        Task<Stream> OpenReadFileAsync(
+            SourcePackage package,
+            SourcePackageFile file,
+            CancellationToken cancellationToken);
     }
 }

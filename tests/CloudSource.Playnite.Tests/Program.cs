@@ -25,6 +25,9 @@ namespace CloudSource.Playnite.Tests
                 ExtractsSevenZipAndRar(root);
                 RegistersEverySupportedArchiveKind();
                 ReportsInstallationPhases(root);
+                InstallsArchivedInnoPackage(root);
+                InstallsStandaloneInnoBundle(root);
+                CompletesLegacyExtractedInstaller(root);
                 ExposesHttpContentLength();
                 RejectsRarLinks(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
@@ -54,8 +57,11 @@ namespace CloudSource.Playnite.Tests
 
             foreach (SourcePackageKind kind in Enum.GetValues(typeof(SourcePackageKind)))
             {
+                if (kind == SourcePackageKind.InnoInstallerBundle) continue;
                 Assert(registry.Supports(kind), $"Archive kind '{kind}' has no registered installer.");
             }
+
+            Assert(!registry.Supports(SourcePackageKind.InnoInstallerBundle), "Native installer bundles must not use an archive extractor.");
         }
 
         private static void ReportsInstallationPhases(string root)
@@ -88,7 +94,7 @@ namespace CloudSource.Playnite.Tests
                 manifestStore);
             var updates = new List<InstallationProgressUpdate>();
 
-            var record = installer.Install(package, "Progress Game", updates.Add, CancellationToken.None);
+            var record = installer.Install(package, "Progress Game", _ => true, updates.Add, CancellationToken.None);
 
             Assert(Directory.Exists(record.InstallDirectory), "Progress test game was not installed.");
             Assert(
@@ -117,6 +123,164 @@ namespace CloudSource.Playnite.Tests
                     Assert(stream.ContentLength == 123, "Google Drive response content length was not exposed.");
                 }
             }
+        }
+
+        private static void InstallsArchivedInnoPackage(string root)
+        {
+            var archivePath = Path.Combine(root, "archived-installer.zip");
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                WriteBinaryEntry(archive, "package/setup.exe", InnoFixtureBytes());
+                WriteBinaryEntry(archive, "package/fg-01.bin", new byte[] { 1, 2, 3 });
+                WriteBinaryEntry(archive, "package/QuickSFV.EXE", new byte[] { 4, 5, 6 });
+            }
+
+            var packageBytes = File.ReadAllBytes(archivePath);
+            var package = new SourcePackage(
+                "test-provider", "account", "archive-object", "revision",
+                "Games/Archive Game.zip", "Archive Game.zip", packageBytes.Length,
+                null, SourcePackageKind.ZipArchive);
+            var runner = new FakeNativeInstallerRunner("Archive Game.exe");
+            var installer = CreateInstaller(
+                Path.Combine(root, "archived-inno-managed"),
+                new MemoryProvider(packageBytes),
+                runner);
+            var confirmations = 0;
+
+            var record = installer.Install(
+                package,
+                "Archive Game",
+                _ => { confirmations++; return true; },
+                _ => { },
+                CancellationToken.None);
+
+            Assert(confirmations == 1, "Archived unsigned installer did not require confirmation.");
+            Assert(record.Manifest.InstallKind == "inno", "Archived installer was recorded as a portable archive.");
+            Assert(record.Manifest.LaunchTarget == "Archive Game.exe", "Installed game executable was not resolved.");
+            Assert(record.Manifest.UninstallTarget == "unins000.exe", "Installed Inno uninstaller was not recorded.");
+            Assert(!File.Exists(Path.Combine(record.InstallDirectory, "setup.exe")), "Installer package was copied into the game directory.");
+        }
+
+        private static void InstallsStandaloneInnoBundle(string root)
+        {
+            var setup = InnoFixtureBytes();
+            var companion = new byte[] { 7, 8, 9, 10 };
+            var files = new[]
+            {
+                new SourcePackageFile(
+                    "setup-object", "setup-revision", "Installers/setup_standalone_game_1.0_(1).exe",
+                    "setup_standalone_game_1.0_(1).exe", setup.Length, SourcePackageFileRole.Primary),
+                new SourcePackageFile(
+                    "bin-object", "bin-revision", "Installers/setup_standalone_game_1.0_(1)-1.bin",
+                    "setup_standalone_game_1.0_(1)-1.bin", companion.Length, SourcePackageFileRole.Companion)
+            };
+            var package = new SourcePackage(
+                "test-provider", "account", "setup-object", "bundle-revision",
+                files[0].LogicalPath, files[0].DisplayName, setup.Length + companion.Length,
+                null, SourcePackageKind.InnoInstallerBundle, files);
+            var provider = new PackageFileProvider(new Dictionary<string, byte[]>
+            {
+                ["setup-object"] = setup,
+                ["bin-object"] = companion
+            });
+            var runner = new FakeNativeInstallerRunner("Standalone Game.exe")
+            {
+                RequiredCompanion = files[1].DisplayName
+            };
+            var installer = CreateInstaller(
+                Path.Combine(root, "standalone-inno-managed"),
+                provider,
+                runner);
+
+            var record = installer.Install(
+                package,
+                "Standalone Game",
+                _ => true,
+                _ => { },
+                CancellationToken.None);
+
+            Assert(record.Manifest.InstallKind == "inno", "Standalone installer bundle was not recorded as Inno.");
+            Assert(record.Manifest.ArchiveSizeBytes == setup.Length + companion.Length, "Standalone package byte total is incorrect.");
+            Assert(runner.InstallCalls == 1, "Standalone setup process was not invoked exactly once.");
+        }
+
+        private static void CompletesLegacyExtractedInstaller(string root)
+        {
+            var managedRoot = Path.Combine(root, "legacy-installer-managed");
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            layout.EnsureCreated();
+            var legacyDirectory = Path.Combine(layout.GamesPath, "Legacy Game");
+            Directory.CreateDirectory(legacyDirectory);
+            File.WriteAllBytes(Path.Combine(legacyDirectory, "setup.exe"), InnoFixtureBytes());
+            File.WriteAllText(Path.Combine(legacyDirectory, "QuickSFV.EXE"), "utility");
+            var manifestStore = new InstallationManifestStore(() => layout);
+            manifestStore.Write(legacyDirectory, new InstallManifest
+            {
+                SchemaVersion = 1,
+                GameId = "test-provider:account:legacy-object",
+                GameName = "Legacy Game",
+                ProviderId = "test-provider",
+                AccountId = "account",
+                ObjectId = "legacy-object",
+                Revision = "revision",
+                LogicalPath = "Games/Legacy Game.7z",
+                ArchiveSha256 = "hash",
+                ArchiveSizeBytes = 100,
+                InstalledSizeBytes = 50,
+                LaunchTarget = "QuickSFV.EXE"
+            });
+            var runner = new FakeNativeInstallerRunner("Legacy Game.exe");
+            var resolver = new LaunchTargetResolver(new GameTitleNormalizer());
+            var installer = new ManagedArchiveInstaller(
+                () => layout,
+                new ProviderRegistry(Array.Empty<ICloudSourceProvider>()),
+                new ArchiveExtractorRegistry(Array.Empty<IArchiveExtractor>()),
+                resolver,
+                manifestStore,
+                new InstallerPackageClassifier(),
+                new NativeInnoInstaller(resolver, runner));
+
+            Assert(installer.CanCompleteExtractedInstaller("test-provider:account:legacy-object", legacyDirectory),
+                "Legacy extracted installer was not offered for completion.");
+            var record = installer.CompleteExtractedInstaller(
+                "test-provider:account:legacy-object",
+                legacyDirectory,
+                "Legacy Game",
+                _ => true,
+                _ => { },
+                CancellationToken.None);
+
+            Assert(!Directory.Exists(legacyDirectory), "Legacy extracted installer package was retained after successful native install.");
+            Assert(record.Manifest.SchemaVersion == 2 && record.Manifest.InstallKind == "inno", "Legacy installer manifest was not upgraded.");
+            Assert(File.Exists(Path.Combine(record.InstallDirectory, "Legacy Game.exe")), "Recovered native game executable is missing.");
+        }
+
+        private static ManagedArchiveInstaller CreateInstaller(
+            string managedRoot,
+            ICloudSourceProvider provider,
+            INativeInstallerProcessRunner runner)
+        {
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            var manifestStore = new InstallationManifestStore(() => layout);
+            var resolver = new LaunchTargetResolver(new GameTitleNormalizer());
+            return new ManagedArchiveInstaller(
+                () => layout,
+                new ProviderRegistry(new[] { provider }),
+                new ArchiveExtractorRegistry(new IArchiveExtractor[]
+                {
+                    new SafeZipExtractor(),
+                    new SafeSharpCompressExtractor(SourcePackageKind.SevenZipArchive),
+                    new SafeSharpCompressExtractor(SourcePackageKind.RarArchive)
+                }),
+                resolver,
+                manifestStore,
+                new InstallerPackageClassifier(),
+                new NativeInnoInstaller(resolver, runner));
+        }
+
+        private static byte[] InnoFixtureBytes()
+        {
+            return System.Text.Encoding.ASCII.GetBytes("MZ test fixture Inno Setup installer");
         }
 
         private static void ExtractsSevenZipAndRar(string root)
@@ -302,6 +466,12 @@ namespace CloudSource.Playnite.Tests
             using (var writer = new StreamWriter(entry.Open())) writer.Write(contents);
         }
 
+        private static void WriteBinaryEntry(ZipArchive archive, string path, byte[] contents)
+        {
+            var entry = archive.CreateEntry(path);
+            using (var output = entry.Open()) output.Write(contents, 0, contents.Length);
+        }
+
         private static string WriteFixture(string root, string fileName, string base64)
         {
             var path = Path.Combine(root, fileName);
@@ -340,6 +510,87 @@ namespace CloudSource.Playnite.Tests
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 return System.Threading.Tasks.Task.FromResult<Stream>(new MemoryStream(packageBytes, writable: false));
+            }
+
+            public System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
+                SourcePackage package,
+                SourcePackageFile file,
+                CancellationToken cancellationToken)
+            {
+                return OpenReadAsync(package, cancellationToken);
+            }
+        }
+
+        private sealed class PackageFileProvider : ICloudSourceProvider
+        {
+            private readonly IReadOnlyDictionary<string, byte[]> files;
+
+            public string Id => "test-provider";
+            public string Name => "Package files";
+            public bool IsConfigured => true;
+
+            public PackageFileProvider(IReadOnlyDictionary<string, byte[]> files)
+            {
+                this.files = files ?? throw new ArgumentNullException(nameof(files));
+            }
+
+            public System.Threading.Tasks.Task<IReadOnlyList<SourcePackage>> ScanAsync(
+                SourceScanRequest request,
+                CancellationToken cancellationToken)
+            {
+                throw new NotSupportedException();
+            }
+
+            public System.Threading.Tasks.Task<Stream> OpenReadAsync(
+                SourcePackage package,
+                CancellationToken cancellationToken)
+            {
+                return OpenReadFileAsync(
+                    package,
+                    package.Files.Single(file => file.Role == SourcePackageFileRole.Primary),
+                    cancellationToken);
+            }
+
+            public System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
+                SourcePackage package,
+                SourcePackageFile file,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!files.TryGetValue(file.ObjectId, out var contents)) throw new FileNotFoundException(file.ObjectId);
+                return System.Threading.Tasks.Task.FromResult<Stream>(new MemoryStream(contents, writable: false));
+            }
+        }
+
+        private sealed class FakeNativeInstallerRunner : INativeInstallerProcessRunner
+        {
+            private readonly string gameExecutable;
+
+            public int InstallCalls { get; private set; }
+            public string RequiredCompanion { get; set; }
+
+            public FakeNativeInstallerRunner(string gameExecutable)
+            {
+                this.gameExecutable = gameExecutable;
+            }
+
+            public int Run(string path, string arguments, string workingDirectory)
+            {
+                if (Path.GetFileName(path).StartsWith("unins", StringComparison.OrdinalIgnoreCase)) return 0;
+                InstallCalls++;
+                if (!string.IsNullOrWhiteSpace(RequiredCompanion) && !File.Exists(Path.Combine(workingDirectory, RequiredCompanion)))
+                    throw new InvalidOperationException("Installer companion was not staged beside setup.");
+                const string prefix = "/DIR=\"";
+                var start = arguments.IndexOf(prefix, StringComparison.Ordinal);
+                if (start < 0) throw new InvalidOperationException("Managed destination argument is missing.");
+                start += prefix.Length;
+                var end = arguments.IndexOf('"', start);
+                if (end < 0) throw new InvalidOperationException("Managed destination argument is invalid.");
+                var destination = arguments.Substring(start, end - start);
+                Directory.CreateDirectory(destination);
+                File.WriteAllText(Path.Combine(destination, gameExecutable), "game");
+                File.WriteAllText(Path.Combine(destination, "unins000.exe"), "uninstaller");
+                return 0;
             }
         }
     }

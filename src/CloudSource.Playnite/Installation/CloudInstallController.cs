@@ -34,6 +34,7 @@ namespace CloudSource.Playnite.Installation
                         record = installer.Install(
                             package,
                             Game.Name,
+                            request => ConfirmInstaller(playniteApi, progressArgs, request),
                             update => UpdateProgress(progressArgs, update),
                             progressArgs.CancelToken);
                         return Task.CompletedTask;
@@ -43,7 +44,10 @@ namespace CloudSource.Playnite.Installation
                         IsIndeterminate = false
                     });
 
-                if (result.Canceled || result.Error is OperationCanceledException)
+                // Cancellation remains effective while preparing the package. Once a native
+                // installer has completed and returned a record, Playnite must accept that
+                // result instead of leaving an installed game unregistered.
+                if ((result.Canceled || result.Error is OperationCanceledException) && record == null)
                 {
                     InvokeOnInstallationCancelled(new GameInstallationCancelledEventArgs());
                     return;
@@ -75,7 +79,7 @@ namespace CloudSource.Playnite.Installation
             }
         }
 
-        private static void UpdateProgress(
+        internal static void UpdateProgress(
             GlobalProgressActionArgs progressArgs,
             InstallationProgressUpdate update)
         {
@@ -101,8 +105,16 @@ namespace CloudSource.Playnite.Installation
                     }
                     break;
                 case InstallationProgressStage.Extracting:
+                    SetDeterminateProgress(progressArgs, update, capBeforeCompletion: true);
+                    progressArgs.Text = $"Extracting game archive… {FormatPercentage(update, capBeforeCompletion: true)}";
+                    break;
+                case InstallationProgressStage.RunningInstaller:
                     SetDeterminateProgress(progressArgs, update);
-                    progressArgs.Text = $"Extracting game archive… {FormatPercentage(update)}";
+                    progressArgs.Text = "Installer running in a separate window…";
+                    break;
+                case InstallationProgressStage.ValidatingInstallation:
+                    SetDeterminateProgress(progressArgs, update);
+                    progressArgs.Text = $"Validating installed game… {FormatPercentage(update)}";
                     break;
                 case InstallationProgressStage.Finalizing:
                     SetDeterminateProgress(progressArgs, update);
@@ -115,14 +127,21 @@ namespace CloudSource.Playnite.Installation
 
         private static void SetDeterminateProgress(
             GlobalProgressActionArgs progressArgs,
-            InstallationProgressUpdate update)
+            InstallationProgressUpdate update,
+            bool capBeforeCompletion = false)
         {
             progressArgs.IsIndeterminate = false;
             progressArgs.ProgressMaxValue = Math.Max(1, update.TotalBytes);
-            progressArgs.CurrentProgressValue = Math.Min(update.CompletedBytes, progressArgs.ProgressMaxValue);
+            var completed = Math.Min(update.CompletedBytes, progressArgs.ProgressMaxValue);
+            if (capBeforeCompletion && completed >= progressArgs.ProgressMaxValue)
+            {
+                completed = progressArgs.ProgressMaxValue * 0.999;
+            }
+
+            progressArgs.CurrentProgressValue = completed;
         }
 
-        private static string FormatPercentage(InstallationProgressUpdate update)
+        private static string FormatPercentage(InstallationProgressUpdate update, bool capBeforeCompletion = false)
         {
             if (update.TotalBytes <= 0)
             {
@@ -130,7 +149,31 @@ namespace CloudSource.Playnite.Installation
             }
 
             var percentage = Math.Min(100d, update.CompletedBytes * 100d / update.TotalBytes);
+            if (capBeforeCompletion) percentage = Math.Min(99.9d, percentage);
             return $"{percentage:0.0}%";
+        }
+
+        internal static bool ConfirmInstaller(
+            IPlayniteAPI playniteApi,
+            GlobalProgressActionArgs progressArgs,
+            InstallerConfirmationRequest request)
+        {
+            var signer = string.IsNullOrWhiteSpace(request.SignerSubject)
+                ? "Embedded signer: none (publisher not verified)"
+                : "Embedded signer: " + request.SignerSubject + " (trust not automatically verified)";
+            var message =
+                $"Cloud Storage found an Inno Setup installer for {request.GameName}.\n\n" +
+                $"Installer: {request.InstallerName}\n" +
+                $"{signer}\n" +
+                $"Managed destination: {request.Destination}\n\n" +
+                "The installer will run visibly and may request administrator permission. " +
+                "Keep the managed destination unchanged. Run this installer?";
+            return progressArgs.MainDispatcher.Invoke(() =>
+                playniteApi.Dialogs.ShowMessage(
+                    message,
+                    "Run game installer",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes);
         }
 
         private static string FormatBytes(long bytes)

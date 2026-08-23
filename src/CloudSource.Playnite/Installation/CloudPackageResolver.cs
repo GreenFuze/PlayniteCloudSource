@@ -8,12 +8,23 @@ namespace CloudSource.Playnite.Installation
     internal sealed class CloudPackageResolver
     {
         private const string DescriptionPrefix = "Cloud archive: ";
+        private readonly SourcePackageCatalog catalog;
+
+        public CloudPackageResolver(SourcePackageCatalog catalog)
+        {
+            this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        }
 
         public SourcePackage Resolve(Game game)
         {
             if (game == null)
             {
                 throw new ArgumentNullException(nameof(game));
+            }
+
+            if (catalog.TryGet(game.GameId, out var catalogPackage))
+            {
+                return catalogPackage;
             }
 
             var identity = (game.GameId ?? string.Empty).Split(new[] { ':' }, 3);
@@ -43,6 +54,7 @@ namespace CloudSource.Playnite.Installation
                 case ".zip": return SourcePackageKind.ZipArchive;
                 case ".7z": return SourcePackageKind.SevenZipArchive;
                 case ".rar": return SourcePackageKind.RarArchive;
+                case ".exe": return SourcePackageKind.InnoInstallerBundle;
                 default: throw new NotSupportedException($"Archive type for '{fileName}' is not supported.");
             }
         }

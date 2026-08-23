@@ -65,6 +65,15 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             return apiClient.OpenReadAsync(configurationFactory(), package, cancellationToken);
         }
 
+        public Task<Stream> OpenReadFileAsync(
+            SourcePackage package,
+            SourcePackageFile file,
+            CancellationToken cancellationToken)
+        {
+            EnsureConfigured();
+            return apiClient.OpenReadFileAsync(configurationFactory(), package, file, cancellationToken);
+        }
+
         private void EnsureConfigured()
         {
             if (!IsConfigured)

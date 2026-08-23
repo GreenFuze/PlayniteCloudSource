@@ -95,11 +95,34 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 throw new InvalidOperationException("The package does not belong to the configured Google Drive account.");
             }
 
-            ValidateObjectId(package.ObjectId);
+            return await OpenReadFileAsync(
+                configuration,
+                package,
+                package.Files.Single(file => file.Role == SourcePackageFileRole.Primary),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<Stream> OpenReadFileAsync(
+            GoogleDriveAccountConfiguration configuration,
+            SourcePackage package,
+            SourcePackageFile file,
+            CancellationToken cancellationToken)
+        {
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            if (package == null) throw new ArgumentNullException(nameof(package));
+            if (file == null) throw new ArgumentNullException(nameof(file));
+            if (!string.Equals(package.ProviderId, GoogleDriveProvider.ProviderId, StringComparison.Ordinal) ||
+                !string.Equals(package.AccountId, configuration.AccountId, StringComparison.Ordinal) ||
+                !package.Files.Any(candidate => string.Equals(candidate.ObjectId, file.ObjectId, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("The package file does not belong to the configured Google Drive account.");
+            }
+
+            ValidateObjectId(file.ObjectId);
             var accessToken = await connectionService
                 .GetAccessTokenAsync(configuration, cancellationToken)
                 .ConfigureAwait(false);
-            var uri = ApiBaseUri + "files/" + Uri.EscapeDataString(package.ObjectId) + "?alt=media&supportsAllDrives=true";
+            var uri = ApiBaseUri + "files/" + Uri.EscapeDataString(file.ObjectId) + "?alt=media&supportsAllDrives=true";
             var request = CreateAuthorizedRequest(HttpMethod.Get, uri, accessToken);
             var response = await httpClient
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -169,6 +192,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 return;
             }
 
+            var folderFiles = new List<GoogleDriveFile>();
             string pageToken = null;
             do
             {
@@ -178,75 +202,174 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                     pageToken,
                     cancellationToken).ConfigureAwait(false);
 
-                foreach (var file in response.Files ?? Enumerable.Empty<GoogleDriveFile>())
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (string.IsNullOrWhiteSpace(file.Id) || string.IsNullOrWhiteSpace(file.Name))
-                    {
-                        throw new InvalidDataException("Google Drive returned a file without an ID or name.");
-                    }
-
-                    ValidateObjectId(file.Id);
-                    var logicalPath = CombineLogicalPath(displayPath, file.Name);
-                    if (string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal))
-                    {
-                        if (recursive)
-                        {
-                            await ScanFolderAsync(
-                                accessToken,
-                                accountId,
-                                file.Id,
-                                logicalPath,
-                                true,
-                                visitedFolders,
-                                packages,
-                                cancellationToken).ConfigureAwait(false);
-                        }
-
-                        continue;
-                    }
-
-                    if (!TryGetPackageKind(file.Name, out var kind))
-                    {
-                        continue;
-                    }
-
-                    if (!long.TryParse(file.Size, NumberStyles.None, CultureInfo.InvariantCulture, out var size) || size < 0)
-                    {
-                        throw new InvalidDataException($"Google Drive returned an invalid size for '{logicalPath}'.");
-                    }
-
-                    DateTimeOffset? modifiedAt = null;
-                    if (!string.IsNullOrWhiteSpace(file.ModifiedTime))
-                    {
-                        if (!DateTimeOffset.TryParse(
-                            file.ModifiedTime,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal,
-                            out var parsedModifiedAt))
-                        {
-                            throw new InvalidDataException($"Google Drive returned an invalid modified time for '{logicalPath}'.");
-                        }
-
-                        modifiedAt = parsedModifiedAt;
-                    }
-
-                    var revision = FirstNonEmpty(file.Md5Checksum, file.Version, file.ModifiedTime);
-                    packages.Add(new SourcePackage(
-                        GoogleDriveProvider.ProviderId,
-                        accountId,
-                        file.Id,
-                        revision,
-                        logicalPath,
-                        file.Name,
-                        size,
-                        modifiedAt,
-                        kind));
-                }
+                folderFiles.AddRange(response.Files ?? Enumerable.Empty<GoogleDriveFile>());
 
                 pageToken = response.NextPageToken;
             }
             while (!string.IsNullOrWhiteSpace(pageToken));
+
+            foreach (var file in folderFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ValidateListedFile(file);
+                if (!string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal)) continue;
+                if (recursive)
+                {
+                    await ScanFolderAsync(
+                        accessToken,
+                        accountId,
+                        file.Id,
+                        CombineLogicalPath(displayPath, file.Name),
+                        true,
+                        visitedFolders,
+                        packages,
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            var regularFiles = folderFiles
+                .Where(file => !string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal))
+                .ToList();
+            foreach (var file in regularFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ValidateListedFile(file);
+                if (!TryGetPackageKind(file.Name, out var kind)) continue;
+                var logicalPath = CombineLogicalPath(displayPath, file.Name);
+                packages.Add(CreateSingleFilePackage(accountId, file, logicalPath, kind));
+            }
+
+            foreach (var setup in regularFiles.Where(file => IsInstallerSetupName(file.Name)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ValidateListedFile(setup);
+                var setupPath = CombineLogicalPath(displayPath, setup.Name);
+                var files = new List<SourcePackageFile>
+                {
+                    CreatePackageFile(setup, setupPath, SourcePackageFileRole.Primary)
+                };
+                files.AddRange(regularFiles
+                    .Where(file => IsMatchingInstallerCompanion(setup.Name, file.Name))
+                    .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(file =>
+                    {
+                        ValidateListedFile(file);
+                        return CreatePackageFile(
+                            file,
+                            CombineLogicalPath(displayPath, file.Name),
+                            SourcePackageFileRole.Companion);
+                    }));
+                long totalSize;
+                try
+                {
+                    totalSize = files.Aggregate(0L, (total, file) => checked(total + file.SizeBytes));
+                }
+                catch (OverflowException exception)
+                {
+                    throw new InvalidDataException($"Installer package '{setupPath}' is too large.", exception);
+                }
+
+                packages.Add(new SourcePackage(
+                    GoogleDriveProvider.ProviderId,
+                    accountId,
+                    setup.Id,
+                    string.Join("|", files.Select(file => file.Revision)),
+                    setupPath,
+                    setup.Name,
+                    totalSize,
+                    files.Select(file => ParseModifiedAt(file.LogicalPath, regularFiles.Single(source => source.Id == file.ObjectId)))
+                        .Where(value => value.HasValue)
+                        .OrderByDescending(value => value.Value)
+                        .FirstOrDefault(),
+                    SourcePackageKind.InnoInstallerBundle,
+                    files));
+            }
+        }
+
+        private static SourcePackage CreateSingleFilePackage(
+            string accountId,
+            GoogleDriveFile file,
+            string logicalPath,
+            SourcePackageKind kind)
+        {
+            return new SourcePackage(
+                GoogleDriveProvider.ProviderId,
+                accountId,
+                file.Id,
+                FirstNonEmpty(file.Md5Checksum, file.Version, file.ModifiedTime),
+                logicalPath,
+                file.Name,
+                ParseSize(logicalPath, file.Size),
+                ParseModifiedAt(logicalPath, file),
+                kind);
+        }
+
+        private static SourcePackageFile CreatePackageFile(
+            GoogleDriveFile file,
+            string logicalPath,
+            SourcePackageFileRole role)
+        {
+            return new SourcePackageFile(
+                file.Id,
+                FirstNonEmpty(file.Md5Checksum, file.Version, file.ModifiedTime),
+                logicalPath,
+                file.Name,
+                ParseSize(logicalPath, file.Size),
+                role);
+        }
+
+        private static void ValidateListedFile(GoogleDriveFile file)
+        {
+            if (file == null || string.IsNullOrWhiteSpace(file.Id) || string.IsNullOrWhiteSpace(file.Name))
+            {
+                throw new InvalidDataException("Google Drive returned a file without an ID or name.");
+            }
+
+            ValidateObjectId(file.Id);
+        }
+
+        private static long ParseSize(string logicalPath, string value)
+        {
+            if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var size) || size < 0)
+            {
+                throw new InvalidDataException($"Google Drive returned an invalid size for '{logicalPath}'.");
+            }
+
+            return size;
+        }
+
+        private static DateTimeOffset? ParseModifiedAt(string logicalPath, GoogleDriveFile file)
+        {
+            if (string.IsNullOrWhiteSpace(file.ModifiedTime)) return null;
+            if (!DateTimeOffset.TryParse(
+                file.ModifiedTime,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out var parsedModifiedAt))
+            {
+                throw new InvalidDataException($"Google Drive returned an invalid modified time for '{logicalPath}'.");
+            }
+
+            return parsedModifiedAt;
+        }
+
+        private static bool IsInstallerSetupName(string name)
+        {
+            var fileName = Path.GetFileName(name ?? string.Empty);
+            return string.Equals(fileName, "setup.exe", StringComparison.OrdinalIgnoreCase) ||
+                (fileName.StartsWith("setup_", StringComparison.OrdinalIgnoreCase) &&
+                 fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsMatchingInstallerCompanion(string setupName, string candidateName)
+        {
+            if (!candidateName.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)) return false;
+            var setupStem = Path.GetFileNameWithoutExtension(setupName);
+            var companionStem = Path.GetFileNameWithoutExtension(candidateName);
+            var separator = companionStem.LastIndexOf('-');
+            if (separator <= 0 || separator == companionStem.Length - 1) return false;
+            if (!companionStem.Substring(separator + 1).All(char.IsDigit)) return false;
+            return string.Equals(companionStem.Substring(0, separator), setupStem, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<GoogleDriveFileListResponse> ListFolderPageAsync(

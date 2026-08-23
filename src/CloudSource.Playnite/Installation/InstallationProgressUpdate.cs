@@ -4,6 +4,8 @@ namespace CloudSource.Playnite.Installation
     {
         Downloading,
         Extracting,
+        RunningInstaller,
+        ValidatingInstallation,
         Finalizing
     }
 

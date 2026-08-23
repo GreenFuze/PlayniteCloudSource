@@ -72,6 +72,7 @@ namespace CloudSource.Playnite.Installation
 
                 targets.Add(new PlannedArchiveEntry(
                     entry.Index,
+                    entry.Key,
                     destination,
                     entry.IsDirectory,
                     entry.Size));
@@ -189,13 +190,15 @@ namespace CloudSource.Playnite.Installation
     internal sealed class PlannedArchiveEntry
     {
         public int Index { get; }
+        public string Key { get; }
         public string Destination { get; }
         public bool IsDirectory { get; }
         public long Size { get; }
 
-        public PlannedArchiveEntry(int index, string destination, bool isDirectory, long size)
+        public PlannedArchiveEntry(int index, string key, string destination, bool isDirectory, long size)
         {
             Index = index;
+            Key = key ?? throw new ArgumentNullException(nameof(key));
             Destination = destination;
             IsDirectory = isDirectory;
             Size = size;

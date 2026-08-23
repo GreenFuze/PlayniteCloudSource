@@ -187,7 +187,7 @@ namespace CloudSource.Playnite
             }
 
             var package = packageResolver.Resolve(args.Game);
-            if (package.Kind != SourcePackageKind.ZipArchive)
+            if (!archiveInstaller.Supports(package.Kind))
             {
                 yield break;
             }

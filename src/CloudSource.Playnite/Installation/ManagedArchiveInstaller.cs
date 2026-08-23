@@ -31,7 +31,16 @@ namespace CloudSource.Playnite.Installation
             this.manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         }
 
-        public InstallationRecord Install(SourcePackage package, string gameName, CancellationToken cancellationToken)
+        public bool Supports(SourcePackageKind kind)
+        {
+            return extractorRegistry.Supports(kind);
+        }
+
+        public InstallationRecord Install(
+            SourcePackage package,
+            string gameName,
+            Action<InstallationProgressUpdate> reportProgress,
+            CancellationToken cancellationToken)
         {
             if (package == null) throw new ArgumentNullException(nameof(package));
             var extractor = extractorRegistry.GetRequired(package.Kind);
@@ -46,11 +55,16 @@ namespace CloudSource.Playnite.Installation
             try
             {
                 var archivePath = Path.Combine(stageRoot, "package" + GetArchiveExtension(package.Kind));
-                var download = Download(package, archivePath, cancellationToken);
+                reportProgress?.Invoke(new InstallationProgressUpdate(
+                    InstallationProgressStage.Downloading,
+                    totalBytes: package.SizeBytes));
+                var download = Download(package, archivePath, reportProgress, cancellationToken);
+                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Extracting));
                 var extraction = extractor.Extract(
                     archivePath,
                     Path.Combine(stageRoot, "content"),
                     cancellationToken);
+                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing));
                 var launchTarget = launchTargetResolver.Resolve(extraction.PayloadRoot, gameName);
                 var destination = SelectDestination(layout.GamesPath, gameName, package.StableId);
                 var manifest = new InstallManifest
@@ -105,7 +119,11 @@ namespace CloudSource.Playnite.Installation
             Directory.Delete(record.InstallDirectory, true);
         }
 
-        private DownloadResult Download(SourcePackage package, string destination, CancellationToken cancellationToken)
+        private DownloadResult Download(
+            SourcePackage package,
+            string destination,
+            Action<InstallationProgressUpdate> reportProgress,
+            CancellationToken cancellationToken)
         {
             var provider = providerRegistry.GetRequired(package.ProviderId);
             using (var input = provider.OpenReadAsync(package, cancellationToken).GetAwaiter().GetResult())
@@ -114,6 +132,7 @@ namespace CloudSource.Playnite.Installation
             {
                 var buffer = new byte[128 * 1024];
                 long size = 0;
+                long nextProgressReport = 4L * 1024 * 1024;
                 int read;
                 while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
                 {
@@ -121,7 +140,20 @@ namespace CloudSource.Playnite.Installation
                     output.Write(buffer, 0, read);
                     hash.TransformBlock(buffer, 0, read, null, 0);
                     size += read;
+                    if (size >= nextProgressReport)
+                    {
+                        reportProgress?.Invoke(new InstallationProgressUpdate(
+                            InstallationProgressStage.Downloading,
+                            size,
+                            package.SizeBytes));
+                        nextProgressReport = size + (4L * 1024 * 1024);
+                    }
                 }
+
+                reportProgress?.Invoke(new InstallationProgressUpdate(
+                    InstallationProgressStage.Downloading,
+                    size,
+                    package.SizeBytes));
 
                 hash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
                 if (package.SizeBytes > 0 && package.SizeBytes != size)

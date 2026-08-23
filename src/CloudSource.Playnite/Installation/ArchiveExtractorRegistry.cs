@@ -43,5 +43,10 @@ namespace CloudSource.Playnite.Installation
 
             return extractor;
         }
+
+        public bool Supports(SourcePackageKind kind)
+        {
+            return extractors.ContainsKey(kind);
+        }
     }
 }

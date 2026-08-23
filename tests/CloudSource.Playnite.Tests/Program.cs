@@ -22,6 +22,8 @@ namespace CloudSource.Playnite.Tests
                 ExtractsWrapperAndSelectsGameExecutable(root);
                 RejectsTraversal(root);
                 ExtractsSevenZipAndRar(root);
+                RegistersEverySupportedArchiveKind();
+                ReportsInstallationPhases(root);
                 RejectsRarLinks(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
                 ReconcilesOnlyAnAuthoritativeProviderAccountScope();
@@ -37,6 +39,65 @@ namespace CloudSource.Playnite.Tests
             {
                 if (Directory.Exists(root)) Directory.Delete(root, true);
             }
+        }
+
+        private static void RegistersEverySupportedArchiveKind()
+        {
+            var registry = new ArchiveExtractorRegistry(new IArchiveExtractor[]
+            {
+                new SafeZipExtractor(),
+                new SafeSharpCompressExtractor(SourcePackageKind.SevenZipArchive),
+                new SafeSharpCompressExtractor(SourcePackageKind.RarArchive)
+            });
+
+            foreach (SourcePackageKind kind in Enum.GetValues(typeof(SourcePackageKind)))
+            {
+                Assert(registry.Supports(kind), $"Archive kind '{kind}' has no registered installer.");
+            }
+        }
+
+        private static void ReportsInstallationPhases(string root)
+        {
+            var archivePath = Path.Combine(root, "progress.zip");
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                WriteEntry(archive, "Progress Game.exe", "game");
+            }
+
+            var packageBytes = File.ReadAllBytes(archivePath);
+            var package = new SourcePackage(
+                "test-provider",
+                "account",
+                "object",
+                "revision",
+                "Games/Progress Game.zip",
+                "Progress Game.zip",
+                packageBytes.Length,
+                null,
+                SourcePackageKind.ZipArchive);
+            var managedRoot = Path.Combine(root, "progress-managed");
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            var manifestStore = new InstallationManifestStore(() => layout);
+            var installer = new ManagedArchiveInstaller(
+                () => layout,
+                new ProviderRegistry(new ICloudSourceProvider[] { new MemoryProvider(packageBytes) }),
+                new ArchiveExtractorRegistry(new IArchiveExtractor[] { new SafeZipExtractor() }),
+                new LaunchTargetResolver(new GameTitleNormalizer()),
+                manifestStore);
+            var updates = new List<InstallationProgressUpdate>();
+
+            var record = installer.Install(package, "Progress Game", updates.Add, CancellationToken.None);
+
+            Assert(Directory.Exists(record.InstallDirectory), "Progress test game was not installed.");
+            Assert(
+                updates.Select(update => update.Stage).Distinct().SequenceEqual(new[]
+                {
+                    InstallationProgressStage.Downloading,
+                    InstallationProgressStage.Extracting,
+                    InstallationProgressStage.Finalizing
+                }),
+                "Installation progress phases were not reported in order.");
+            Assert(!Directory.EnumerateFileSystemEntries(layout.StagingPath).Any(), "Successful install left staging files behind.");
         }
 
         private static void ExtractsSevenZipAndRar(string root)
@@ -232,6 +293,35 @@ namespace CloudSource.Playnite.Tests
         private static void Assert(bool condition, string message)
         {
             if (!condition) throw new InvalidOperationException(message);
+        }
+
+        private sealed class MemoryProvider : ICloudSourceProvider
+        {
+            private readonly byte[] packageBytes;
+
+            public string Id => "test-provider";
+            public string Name => "Memory";
+            public bool IsConfigured => true;
+
+            public MemoryProvider(byte[] packageBytes)
+            {
+                this.packageBytes = packageBytes ?? throw new ArgumentNullException(nameof(packageBytes));
+            }
+
+            public System.Threading.Tasks.Task<IReadOnlyList<SourcePackage>> ScanAsync(
+                SourceScanRequest request,
+                CancellationToken cancellationToken)
+            {
+                throw new NotSupportedException();
+            }
+
+            public System.Threading.Tasks.Task<Stream> OpenReadAsync(
+                SourcePackage package,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return System.Threading.Tasks.Task.FromResult<Stream>(new MemoryStream(packageBytes, writable: false));
+            }
         }
     }
 }

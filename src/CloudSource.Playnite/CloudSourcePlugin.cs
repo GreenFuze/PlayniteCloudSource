@@ -21,6 +21,7 @@ namespace CloudSource.Playnite
         private static readonly ILogger Logger = LogManager.GetLogger();
         private readonly HttpClient httpClient;
         private readonly GoogleDriveConnectionService googleDriveConnection;
+        private readonly GoogleDriveFolderPickerDialog googleDriveFolderPicker;
         private readonly ProviderRegistry providerRegistry;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
@@ -43,9 +44,14 @@ namespace CloudSource.Playnite
             googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
             SettingsViewModel = new CloudSourceSettingsViewModel(this);
             var googleDriveApi = new GoogleDriveApiClient(httpClient, googleDriveConnection);
+            var googleDriveFolderBrowser = new GoogleDriveFolderBrowser(googleDriveApi);
+            googleDriveFolderPicker = new GoogleDriveFolderPickerDialog(
+                PlayniteApi.Dialogs,
+                googleDriveFolderBrowser);
             var googleDriveProvider = new GoogleDriveProvider(
                 () => SettingsViewModel.Settings.CreateGoogleDriveConfiguration(),
-                () => SettingsViewModel.Settings.GoogleDriveEnabled,
+                () => SettingsViewModel.Settings.GoogleDriveEnabled &&
+                      SettingsViewModel.Settings.HasConcreteGoogleDriveFolder,
                 googleDriveConnection,
                 googleDriveApi);
             providerRegistry = new ProviderRegistry(new[] { googleDriveProvider });
@@ -158,6 +164,17 @@ namespace CloudSource.Playnite
         }
 
         internal bool HasGoogleDriveAuthorization => googleDriveConnection.HasStoredAuthorization;
+
+        internal GoogleDriveFolder ShowGoogleDriveFolderPicker(
+            GoogleDriveAccountConfiguration configuration,
+            GoogleDriveAuthorization draftAuthorization,
+            string existingSelectionPath)
+        {
+            return googleDriveFolderPicker.Show(
+                configuration,
+                draftAuthorization,
+                existingSelectionPath);
+        }
 
         internal void ShowError(string message)
         {

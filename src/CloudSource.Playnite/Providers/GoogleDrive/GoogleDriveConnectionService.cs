@@ -138,6 +138,60 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             }
         }
 
+        public async Task<string> GetAccessTokenAsync(
+            GoogleDriveAccountConfiguration configuration,
+            GoogleDriveAuthorization draftAuthorization,
+            CancellationToken cancellationToken)
+        {
+            if (draftAuthorization == null)
+            {
+                return await GetAccessTokenAsync(configuration, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (configuration == null)
+            {
+                throw new ArgumentNullException(nameof(configuration));
+            }
+
+            if (!string.Equals(
+                configuration.AccountId,
+                draftAuthorization.AccountId,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The draft Google Drive authorization belongs to a different account.");
+            }
+
+            await tokenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var token = draftAuthorization.Token;
+                if (!string.IsNullOrWhiteSpace(token.AccessToken) &&
+                    token.ExpiresAtUtc > DateTime.UtcNow.AddMinutes(1))
+                {
+                    return token.AccessToken;
+                }
+
+                if (string.IsNullOrWhiteSpace(token.RefreshToken))
+                {
+                    throw new InvalidOperationException(
+                        "The draft Google Drive authorization cannot be refreshed. Connect the account again.");
+                }
+
+                var refreshed = await RefreshAsync(
+                    configuration,
+                    token.RefreshToken,
+                    cancellationToken).ConfigureAwait(false);
+                refreshed.RefreshToken = token.RefreshToken;
+                draftAuthorization.ReplaceToken(refreshed);
+                return refreshed.AccessToken;
+            }
+            finally
+            {
+                tokenLock.Release();
+            }
+        }
+
         private async Task<GoogleDriveToken> ExchangeCodeAsync(
             string clientId,
             string clientSecret,

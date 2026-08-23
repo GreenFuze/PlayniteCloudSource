@@ -118,6 +118,41 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             return new HttpResponseStream(stream, response);
         }
 
+        public async Task<IReadOnlyList<GoogleDriveFolder>> ListFoldersAsync(
+            GoogleDriveAccountConfiguration configuration,
+            GoogleDriveFolder parent,
+            GoogleDriveAuthorization draftAuthorization,
+            CancellationToken cancellationToken)
+        {
+            if (configuration == null)
+            {
+                throw new ArgumentNullException(nameof(configuration));
+            }
+
+            if (parent == null)
+            {
+                throw new ArgumentNullException(nameof(parent));
+            }
+
+            if (!parent.CanBrowse)
+            {
+                throw new InvalidOperationException($"Google Drive location '{parent.Name}' cannot be browsed.");
+            }
+
+            var accessToken = await connectionService
+                .GetAccessTokenAsync(configuration, draftAuthorization, cancellationToken)
+                .ConfigureAwait(false);
+            var query = parent.Kind == GoogleDriveFolderKind.SharedWithMe
+                ? $"sharedWithMe = true and mimeType = '{FolderMimeType}' and trashed = false"
+                : $"'{ValidateObjectId(parent.ObjectId)}' in parents and mimeType = '{FolderMimeType}' and trashed = false";
+            var files = await ListFilesByQueryAsync(accessToken, query, cancellationToken).ConfigureAwait(false);
+
+            return files
+                .Select(file => GoogleDriveFolder.CreateChild(parent, file.Id, file.Name))
+                .OrderBy(folder => folder.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
         private async Task ScanFolderAsync(
             string accessToken,
             string accountId,
@@ -248,6 +283,64 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             }
         }
 
+        private async Task<IReadOnlyList<GoogleDriveFile>> ListFilesByQueryAsync(
+            string accessToken,
+            string query,
+            CancellationToken cancellationToken)
+        {
+            var files = new List<GoogleDriveFile>();
+            string pageToken = null;
+            do
+            {
+                var fields = "nextPageToken,files(id,name,mimeType)";
+                var uri = ApiBaseUri + "files" +
+                          "?q=" + Uri.EscapeDataString(query) +
+                          "&fields=" + Uri.EscapeDataString(fields) +
+                          "&includeItemsFromAllDrives=true" +
+                          "&supportsAllDrives=true" +
+                          "&orderBy=" + Uri.EscapeDataString("name") +
+                          "&pageSize=1000";
+                if (!string.IsNullOrWhiteSpace(pageToken))
+                {
+                    uri += "&pageToken=" + Uri.EscapeDataString(pageToken);
+                }
+
+                using (var request = CreateAuthorizedRequest(HttpMethod.Get, uri, accessToken))
+                using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+                {
+                    var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new InvalidOperationException(
+                            $"Google Drive folder browsing failed ({(int)response.StatusCode}): {body}");
+                    }
+
+                    var page = GoogleDriveJson.Deserialize<GoogleDriveFileListResponse>(body)
+                        ?? throw new InvalidDataException("Google Drive returned an empty folder browsing response.");
+                    foreach (var file in page.Files ?? Enumerable.Empty<GoogleDriveFile>())
+                    {
+                        if (string.IsNullOrWhiteSpace(file.Id) || string.IsNullOrWhiteSpace(file.Name))
+                        {
+                            throw new InvalidDataException("Google Drive returned a folder without an ID or name.");
+                        }
+
+                        ValidateObjectId(file.Id);
+                        if (!string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal))
+                        {
+                            throw new InvalidDataException($"Google Drive returned non-folder object '{file.Name}' while browsing folders.");
+                        }
+
+                        files.Add(file);
+                    }
+
+                    pageToken = page.NextPageToken;
+                }
+            }
+            while (!string.IsNullOrWhiteSpace(pageToken));
+
+            return files;
+        }
+
         private static HttpRequestMessage CreateAuthorizedRequest(
             HttpMethod method,
             string uri,
@@ -258,12 +351,14 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             return request;
         }
 
-        private static void ValidateObjectId(string objectId)
+        private static string ValidateObjectId(string objectId)
         {
             if (string.IsNullOrWhiteSpace(objectId) || !ObjectIdPattern.IsMatch(objectId))
             {
                 throw new ArgumentException("Google Drive object ID is invalid.", nameof(objectId));
             }
+
+            return objectId;
         }
 
         private static string CombineLogicalPath(string parent, string name)

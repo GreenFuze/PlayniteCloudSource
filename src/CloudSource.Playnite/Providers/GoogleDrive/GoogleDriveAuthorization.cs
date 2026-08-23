@@ -4,7 +4,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 {
     public sealed class GoogleDriveAuthorization
     {
-        internal GoogleDriveToken Token { get; }
+        internal GoogleDriveToken Token { get; private set; }
         public string AccountId { get; }
         public string AccountDisplayName { get; }
 
@@ -16,6 +16,11 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             Token = token ?? throw new ArgumentNullException(nameof(token));
             AccountId = Required(accountId, nameof(accountId));
             AccountDisplayName = Required(accountDisplayName, nameof(accountDisplayName));
+        }
+
+        internal void ReplaceToken(GoogleDriveToken token)
+        {
+            Token = token ?? throw new ArgumentNullException(nameof(token));
         }
 
         private static string Required(string value, string parameterName)

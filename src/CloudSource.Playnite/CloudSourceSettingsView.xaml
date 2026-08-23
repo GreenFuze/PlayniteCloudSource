@@ -39,14 +39,17 @@
             </StackPanel>
             <TextBlock Margin="0,8,0,12" Text="{Binding GoogleDriveStatus}" TextWrapping="Wrap" />
 
-            <TextBlock Text="Source folder ID" />
-            <TextBox Margin="0,4,0,8"
-                     Text="{Binding Settings.GoogleDriveFolderId, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Text="Source folder display path" />
-            <TextBox Margin="0,4,0,4"
-                     Text="{Binding Settings.GoogleDriveFolderDisplayPath, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Text="Game archive folder" />
+            <Border Margin="0,4,0,8" Padding="10" BorderThickness="1" BorderBrush="#40708090">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" MinWidth="120" Margin="12,0,0,0" Padding="10,5"
+                            Content="Choose folder..." Command="{Binding ChooseGoogleDriveFolderCommand}" />
+                    <TextBlock VerticalAlignment="Center" FontWeight="SemiBold"
+                               Text="{Binding GoogleDriveFolderSelectionStatus}" TextWrapping="Wrap" />
+                </DockPanel>
+            </Border>
             <TextBlock Margin="0,0,0,8" Opacity="0.7" TextWrapping="Wrap"
-                       Text="The initial default is My Drive (ID: root). A visual My Drive / Shared with me folder picker is the next slice." />
+                       Text="Choose a concrete folder from My Drive or Shared with me. Cloud Source stores its stable Drive ID, so renaming the folder does not redirect the source." />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

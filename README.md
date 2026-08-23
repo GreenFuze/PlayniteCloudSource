@@ -15,13 +15,16 @@ The current vertical slice provides:
 - one managed storage root with `Games`, `Staging`, and `Cache` children;
 - Google OAuth desktop-app authorization with PKCE and state validation;
 - Windows-user-bound encryption for access and refresh tokens;
+- a theme-aware Google Drive folder picker for My Drive and Shared with me;
 - recursive, paginated, read-only discovery of ZIP, 7z, and RAR archives;
 - stable Playnite game IDs based on provider, account, and Drive object IDs;
 - streamed Drive downloads exposed to the future installer pipeline.
 
-Google Drive credentials and authorization are supplied by the player. Cloud
-Source does not modify or delete cloud files. Archive extraction, transactional
-installation, launch configuration, and local uninstall are not implemented yet.
+Google Drive credentials, authorization, and a concrete source folder are
+supplied by the player. Drive roots are browse-only to prevent accidental
+whole-drive imports. Cloud Source does not modify or delete cloud files. Archive
+extraction, transactional installation, launch configuration, and local
+uninstall are not implemented yet.
 
 ## Build
 

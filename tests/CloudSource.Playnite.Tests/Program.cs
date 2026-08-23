@@ -3,8 +3,10 @@ using CloudSource.Playnite.Installation;
 using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Storage;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 
 namespace CloudSource.Playnite.Tests
 {
@@ -19,7 +21,8 @@ namespace CloudSource.Playnite.Tests
                 ExtractsWrapperAndSelectsGameExecutable(root);
                 RejectsTraversal(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
-                Console.WriteLine("All Cloud Storage installer tests passed.");
+                ReconcilesOnlyAnAuthoritativeProviderAccountScope();
+                Console.WriteLine("All Cloud Storage tests passed.");
                 return 0;
             }
             catch (Exception exception)
@@ -113,6 +116,58 @@ namespace CloudSource.Playnite.Tests
             }
 
             Assert(Directory.Exists(outsideDirectory), "Directory outside the managed Games root was deleted.");
+        }
+
+        private static void ReconcilesOnlyAnAuthoritativeProviderAccountScope()
+        {
+            var pluginId = Guid.NewGuid();
+            var otherPluginId = Guid.NewGuid();
+            var unavailableTagId = Guid.NewGuid();
+            var scope = new CloudSourceScope("google-drive", "account-a");
+            var present = Game("google-drive:account-a:present", pluginId, false, unavailableTagId);
+            var missingUninstalled = Game("google-drive:account-a:missing", pluginId, false);
+            var missingInstalled = Game("google-drive:account-a:installed", pluginId, true);
+            var missingManifest = Game("google-drive:account-a:manifest", pluginId, false);
+            var otherAccount = Game("google-drive:account-b:other", pluginId, false);
+            var otherPlugin = Game("google-drive:account-a:foreign", otherPluginId, false);
+            var malformed = Game("not-a-cloud-id", pluginId, false);
+            var games = new[]
+            {
+                present, missingUninstalled, missingInstalled, missingManifest,
+                otherAccount, otherPlugin, malformed
+            };
+
+            var plan = new CloudLibraryReconciliationPlanner().CreatePlan(
+                games,
+                pluginId,
+                scope,
+                new[] { "google-drive:account-a:present" },
+                game => ReferenceEquals(game, missingManifest),
+                unavailableTagId);
+
+            Assert(plan.GamesToMarkAvailable.SequenceEqual(new[] { present }), "Returned game was not marked available.");
+            Assert(plan.GamesToRemove.SequenceEqual(new[] { missingUninstalled }), "Missing uninstalled game removal plan is incorrect.");
+            Assert(
+                new HashSet<global::Playnite.SDK.Models.Game>(plan.GamesToMarkUnavailable).SetEquals(new[] { missingInstalled, missingManifest }),
+                "Installed missing games were not retained and marked unavailable.");
+            Assert(!plan.GamesToRemove.Contains(otherAccount), "A different account was reconciled.");
+            Assert(!plan.GamesToRemove.Contains(otherPlugin), "A different plugin was reconciled.");
+            Assert(!plan.GamesToRemove.Contains(malformed), "A malformed identity was reconciled.");
+        }
+
+        private static global::Playnite.SDK.Models.Game Game(
+            string gameId,
+            Guid pluginId,
+            bool installed,
+            params Guid[] tagIds)
+        {
+            return new global::Playnite.SDK.Models.Game
+            {
+                GameId = gameId,
+                PluginId = pluginId,
+                IsInstalled = installed,
+                TagIds = tagIds?.ToList()
+            };
         }
 
         private static void WriteEntry(ZipArchive archive, string path, string contents)

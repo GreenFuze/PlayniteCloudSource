@@ -23,7 +23,9 @@ The current vertical slice provides:
 - streamed Drive downloads;
 - transactional ZIP installation into the managed `Games` directory;
 - ZIP traversal/link/size validation and MGA-style executable selection;
-- manifest-validated launch and uninstall actions.
+- manifest-validated launch and uninstall actions;
+- authoritative successful-scan reconciliation: missing uninstalled games are
+  removed, while installed games are retained and tagged as source unavailable.
 
 Google Drive credentials, authorization, and a concrete source folder are
 supplied by the player. Drive roots are browse-only to prevent accidental

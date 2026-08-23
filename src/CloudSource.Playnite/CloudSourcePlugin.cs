@@ -30,6 +30,7 @@ namespace CloudSource.Playnite
         private readonly ProviderRegistry providerRegistry;
         private readonly CloudPackageResolver packageResolver;
         private readonly InstallationManifestStore manifestStore;
+        private readonly CloudLibraryReconciler libraryReconciler;
         private readonly ManagedZipInstaller zipInstaller;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
@@ -75,6 +76,10 @@ namespace CloudSource.Playnite
             providerRegistry = new ProviderRegistry(new[] { googleDriveProvider });
             packageResolver = new CloudPackageResolver();
             manifestStore = new InstallationManifestStore(GetManagedStorageLayout);
+            libraryReconciler = new CloudLibraryReconciler(
+                PlayniteApi.Database,
+                manifestStore,
+                new CloudLibraryReconciliationPlanner());
             metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier, manifestStore);
             zipInstaller = new ManagedZipInstaller(
                 GetManagedStorageLayout,
@@ -105,6 +110,7 @@ namespace CloudSource.Playnite
             }
 
             var games = new List<GameMetadata>();
+            var authoritativeSnapshots = new List<AuthoritativeSourceSnapshot>();
             foreach (var provider in configuredProviders)
             {
                 args.CancelToken.ThrowIfCancellationRequested();
@@ -131,11 +137,27 @@ namespace CloudSource.Playnite
                         Logger.Info($"{CloudStorageProduct.DisplayName} skipped {skippedPackages} non-game archive(s).");
                     }
 
+                    authoritativeSnapshots.Add(new AuthoritativeSourceSnapshot(
+                        new CloudSourceScope(provider.Id, settings.GoogleDriveAccountId),
+                        importablePackages.Select(package => package.StableId).ToList()));
                     games.AddRange(importablePackages.Select(metadataFactory.Create));
                     continue;
                 }
 
                 throw new InvalidOperationException($"Provider '{provider.Id}' has no Playnite import adapter.");
+            }
+
+            args.CancelToken.ThrowIfCancellationRequested();
+            foreach (var snapshot in authoritativeSnapshots)
+            {
+                var reconciliation = libraryReconciler.Reconcile(snapshot);
+                if (reconciliation.Changed)
+                {
+                    Logger.Info(
+                        $"{CloudStorageProduct.DisplayName} reconciliation removed {reconciliation.RemovedGames} " +
+                        $"missing uninstalled game(s), marked {reconciliation.MarkedUnavailable} installed game(s) " +
+                        $"unavailable, and restored {reconciliation.MarkedAvailable} game(s).");
+                }
             }
 
             Logger.Info($"{CloudStorageProduct.DisplayName} discovered {games.Count} game archive package(s).");
@@ -150,6 +172,11 @@ namespace CloudSource.Playnite
         public override IEnumerable<InstallController> GetInstallActions(GetInstallActionsArgs args)
         {
             if (args?.Game == null || args.Game.PluginId != PluginId)
+            {
+                yield break;
+            }
+
+            if (libraryReconciler.IsSourceUnavailable(args.Game))
             {
                 yield break;
             }

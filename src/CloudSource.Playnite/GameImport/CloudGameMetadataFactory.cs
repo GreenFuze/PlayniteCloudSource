@@ -1,4 +1,5 @@
 using CloudSource.Playnite.Providers;
+using CloudSource.Playnite.Installation;
 using Playnite.SDK.Models;
 using System;
 using System.Collections.Generic;
@@ -10,13 +11,16 @@ namespace CloudSource.Playnite.GameImport
     {
         private readonly GameTitleNormalizer titleNormalizer;
         private readonly CloudArchiveClassifier archiveClassifier;
+        private readonly InstallationManifestStore manifestStore;
 
         public CloudGameMetadataFactory(
             GameTitleNormalizer titleNormalizer,
-            CloudArchiveClassifier archiveClassifier)
+            CloudArchiveClassifier archiveClassifier,
+            InstallationManifestStore manifestStore)
         {
             this.titleNormalizer = titleNormalizer ?? throw new ArgumentNullException(nameof(titleNormalizer));
             this.archiveClassifier = archiveClassifier ?? throw new ArgumentNullException(nameof(archiveClassifier));
+            this.manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         }
 
         public GameMetadata Create(SourcePackage package)
@@ -32,12 +36,15 @@ namespace CloudSource.Playnite.GameImport
                 throw new InvalidDataException($"Cloud package '{package.StableId}' has no usable game name.");
             }
 
+            var installation = manifestStore.Find(package.StableId);
             var metadata = new GameMetadata
             {
                 GameId = package.StableId,
                 Name = titleNormalizer.CleanDisplayTitle(rawTitle),
                 Description = $"Cloud archive: {package.LogicalPath}",
-                IsInstalled = false,
+                IsInstalled = installation != null,
+                InstallDirectory = installation?.InstallDirectory,
+                InstallSize = installation == null ? (ulong?)null : (ulong)installation.Manifest.InstalledSizeBytes,
                 Source = new MetadataNameProperty(CloudStorageProduct.DisplayName),
                 Version = package.Revision
             };

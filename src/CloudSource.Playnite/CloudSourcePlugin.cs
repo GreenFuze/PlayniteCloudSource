@@ -2,6 +2,7 @@ using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Providers.GoogleDrive;
 using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Storage;
+using CloudSource.Playnite.Installation;
 using Playnite.SDK;
 using Playnite.SDK.Events;
 using Playnite.SDK.Models;
@@ -27,6 +28,9 @@ namespace CloudSource.Playnite
         private readonly CloudGameMetadataFactory metadataFactory;
         private readonly CloudStorageLibraryMigrator libraryMigrator;
         private readonly ProviderRegistry providerRegistry;
+        private readonly CloudPackageResolver packageResolver;
+        private readonly InstallationManifestStore manifestStore;
+        private readonly ManagedZipInstaller zipInstaller;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
 
@@ -48,7 +52,6 @@ namespace CloudSource.Playnite
             googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
             var titleNormalizer = new GameTitleNormalizer();
             archiveClassifier = new CloudArchiveClassifier();
-            metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier);
             libraryMigrator = new CloudStorageLibraryMigrator(
                 PlayniteApi.Database,
                 titleNormalizer,
@@ -66,6 +69,15 @@ namespace CloudSource.Playnite
                 googleDriveConnection,
                 googleDriveApi);
             providerRegistry = new ProviderRegistry(new[] { googleDriveProvider });
+            packageResolver = new CloudPackageResolver();
+            manifestStore = new InstallationManifestStore(GetManagedStorageLayout);
+            metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier, manifestStore);
+            zipInstaller = new ManagedZipInstaller(
+                GetManagedStorageLayout,
+                providerRegistry,
+                new SafeZipExtractor(),
+                new LaunchTargetResolver(titleNormalizer),
+                manifestStore);
 
             Properties = new LibraryPluginProperties
             {
@@ -129,6 +141,55 @@ namespace CloudSource.Playnite
         public override ISettings GetSettings(bool firstRunSettings)
         {
             return SettingsViewModel;
+        }
+
+        public override IEnumerable<InstallController> GetInstallActions(GetInstallActionsArgs args)
+        {
+            if (args?.Game == null || args.Game.PluginId != PluginId)
+            {
+                yield break;
+            }
+
+            var package = packageResolver.Resolve(args.Game);
+            if (package.Kind != SourcePackageKind.ZipArchive)
+            {
+                yield break;
+            }
+
+            yield return new CloudInstallController(args.Game, PlayniteApi, zipInstaller, package);
+        }
+
+        public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
+        {
+            if (args?.Game == null || args.Game.PluginId != PluginId)
+            {
+                yield break;
+            }
+
+            yield return new CloudUninstallController(args.Game, PlayniteApi, zipInstaller);
+        }
+
+        public override IEnumerable<PlayController> GetPlayActions(GetPlayActionsArgs args)
+        {
+            if (args?.Game == null || args.Game.PluginId != PluginId)
+            {
+                yield break;
+            }
+
+            var installation = manifestStore.Find(args.Game.GameId, args.Game.InstallDirectory);
+            if (installation == null)
+            {
+                yield break;
+            }
+
+            yield return new AutomaticPlayController(args.Game)
+            {
+                Name = "Play managed Cloud Storage copy",
+                Type = AutomaticPlayActionType.File,
+                Path = installation.LaunchPath,
+                WorkingDir = Path.GetDirectoryName(installation.LaunchPath),
+                TrackingMode = TrackingMode.Default
+            };
         }
 
         public override UserControl GetSettingsView(bool firstRunSettings)
@@ -205,6 +266,19 @@ namespace CloudSource.Playnite
         internal void ShowError(string message)
         {
             PlayniteApi.Dialogs.ShowErrorMessage(message, CloudStorageProduct.DisplayName);
+        }
+
+        private ManagedStorageLayout GetManagedStorageLayout()
+        {
+            if (!ManagedStorageLayout.TryCreate(
+                SettingsViewModel.Settings.ManagedRootPath,
+                out var layout,
+                out var error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            return layout;
         }
     }
 }

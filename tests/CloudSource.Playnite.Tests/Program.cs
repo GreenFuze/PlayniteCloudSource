@@ -1,6 +1,7 @@
 using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Installation;
 using CloudSource.Playnite.Providers;
+using CloudSource.Playnite.Providers.GoogleDrive;
 using CloudSource.Playnite.Storage;
 using System;
 using System.Collections.Generic;
@@ -24,6 +25,7 @@ namespace CloudSource.Playnite.Tests
                 ExtractsSevenZipAndRar(root);
                 RegistersEverySupportedArchiveKind();
                 ReportsInstallationPhases(root);
+                ExposesHttpContentLength();
                 RejectsRarLinks(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
                 ReconcilesOnlyAnAuthoritativeProviderAccountScope();
@@ -98,6 +100,23 @@ namespace CloudSource.Playnite.Tests
                 }),
                 "Installation progress phases were not reported in order.");
             Assert(!Directory.EnumerateFileSystemEntries(layout.StagingPath).Any(), "Successful install left staging files behind.");
+            var extractionUpdates = updates.Where(update => update.Stage == InstallationProgressStage.Extracting).ToList();
+            Assert(extractionUpdates.Count > 0, "Extraction did not report determinate progress.");
+            Assert(
+                extractionUpdates.Last().CompletedBytes == extractionUpdates.Last().TotalBytes,
+                "Extraction progress did not reach its expanded byte total.");
+        }
+
+        private static void ExposesHttpContentLength()
+        {
+            using (var response = new System.Net.Http.HttpResponseMessage())
+            {
+                response.Content = new System.Net.Http.ByteArrayContent(new byte[123]);
+                using (var stream = new HttpResponseStream(new MemoryStream(new byte[123]), response))
+                {
+                    Assert(stream.ContentLength == 123, "Google Drive response content length was not exposed.");
+                }
+            }
         }
 
         private static void ExtractsSevenZipAndRar(string root)

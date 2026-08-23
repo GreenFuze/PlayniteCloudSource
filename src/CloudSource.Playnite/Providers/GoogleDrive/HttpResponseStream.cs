@@ -4,16 +4,19 @@ using System.Net.Http;
 
 namespace CloudSource.Playnite.Providers.GoogleDrive
 {
-    internal sealed class HttpResponseStream : Stream
+    internal sealed class HttpResponseStream : Stream, IKnownLengthStream
     {
         private readonly Stream inner;
         private readonly HttpResponseMessage response;
         private bool disposed;
 
+        public long? ContentLength { get; }
+
         public HttpResponseStream(Stream inner, HttpResponseMessage response)
         {
             this.inner = inner ?? throw new ArgumentNullException(nameof(inner));
             this.response = response ?? throw new ArgumentNullException(nameof(response));
+            ContentLength = response.Content?.Headers.ContentLength;
         }
 
         public override bool CanRead => inner.CanRead;

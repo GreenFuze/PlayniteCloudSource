@@ -40,7 +40,7 @@ namespace CloudSource.Playnite.Installation
                     },
                     new GlobalProgressOptions($"Installing {Game.Name}", true)
                     {
-                        IsIndeterminate = true
+                        IsIndeterminate = false
                     });
 
                 if (result.Canceled || result.Error is OperationCanceledException)
@@ -82,12 +82,12 @@ namespace CloudSource.Playnite.Installation
             switch (update.Stage)
             {
                 case InstallationProgressStage.Downloading:
-                    progressArgs.IsIndeterminate = update.TotalBytes <= 0;
+                    progressArgs.IsIndeterminate = false;
                     if (update.TotalBytes > 0)
                     {
                         progressArgs.ProgressMaxValue = update.TotalBytes;
                         progressArgs.CurrentProgressValue = update.CompletedBytes;
-                        progressArgs.Text = $"Downloading from Cloud Storage… {FormatBytes(update.CompletedBytes)} / {FormatBytes(update.TotalBytes)}";
+                        progressArgs.Text = $"Downloading from Cloud Storage… {FormatPercentage(update)} — {FormatBytes(update.CompletedBytes)} / {FormatBytes(update.TotalBytes)}";
                     }
                     else if (update.CompletedBytes > 0)
                     {
@@ -95,20 +95,42 @@ namespace CloudSource.Playnite.Installation
                     }
                     else
                     {
-                        progressArgs.Text = "Downloading from Cloud Storage…";
+                        progressArgs.ProgressMaxValue = 1;
+                        progressArgs.CurrentProgressValue = 0;
+                        progressArgs.Text = "Connecting to Cloud Storage… 0%";
                     }
                     break;
                 case InstallationProgressStage.Extracting:
-                    progressArgs.IsIndeterminate = true;
-                    progressArgs.Text = "Extracting game archive…";
+                    SetDeterminateProgress(progressArgs, update);
+                    progressArgs.Text = $"Extracting game archive… {FormatPercentage(update)}";
                     break;
                 case InstallationProgressStage.Finalizing:
-                    progressArgs.IsIndeterminate = true;
-                    progressArgs.Text = "Finalizing installation…";
+                    SetDeterminateProgress(progressArgs, update);
+                    progressArgs.Text = $"Finalizing installation… {FormatPercentage(update)}";
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(update.Stage), update.Stage, "Unknown installation progress stage.");
             }
+        }
+
+        private static void SetDeterminateProgress(
+            GlobalProgressActionArgs progressArgs,
+            InstallationProgressUpdate update)
+        {
+            progressArgs.IsIndeterminate = false;
+            progressArgs.ProgressMaxValue = Math.Max(1, update.TotalBytes);
+            progressArgs.CurrentProgressValue = Math.Min(update.CompletedBytes, progressArgs.ProgressMaxValue);
+        }
+
+        private static string FormatPercentage(InstallationProgressUpdate update)
+        {
+            if (update.TotalBytes <= 0)
+            {
+                return "0%";
+            }
+
+            var percentage = Math.Min(100d, update.CompletedBytes * 100d / update.TotalBytes);
+            return $"{percentage:0.0}%";
         }
 
         private static string FormatBytes(long bytes)

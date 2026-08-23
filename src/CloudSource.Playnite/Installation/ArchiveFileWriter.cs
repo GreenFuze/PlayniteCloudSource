@@ -10,6 +10,7 @@ namespace CloudSource.Playnite.Installation
             Stream input,
             string destination,
             long expectedSize,
+            Action<long> reportProgress,
             CancellationToken cancellationToken)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
@@ -34,6 +35,7 @@ namespace CloudSource.Playnite.Installation
 
                     output.Write(buffer, 0, read);
                     written += read;
+                    reportProgress?.Invoke(written);
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();

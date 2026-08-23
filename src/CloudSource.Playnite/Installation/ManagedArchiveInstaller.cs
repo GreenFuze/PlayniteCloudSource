@@ -59,12 +59,15 @@ namespace CloudSource.Playnite.Installation
                     InstallationProgressStage.Downloading,
                     totalBytes: package.SizeBytes));
                 var download = Download(package, archivePath, reportProgress, cancellationToken);
-                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Extracting));
                 var extraction = extractor.Extract(
                     archivePath,
                     Path.Combine(stageRoot, "content"),
+                    (completed, total) => reportProgress?.Invoke(new InstallationProgressUpdate(
+                        InstallationProgressStage.Extracting,
+                        completed,
+                        total)),
                     cancellationToken);
-                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing));
+                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 0, 1));
                 var launchTarget = launchTargetResolver.Resolve(extraction.PayloadRoot, gameName);
                 var destination = SelectDestination(layout.GamesPath, gameName, package.StableId);
                 var manifest = new InstallManifest
@@ -84,6 +87,7 @@ namespace CloudSource.Playnite.Installation
                 };
                 manifestStore.Write(extraction.PayloadRoot, manifest);
                 Directory.Move(extraction.PayloadRoot, destination);
+                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 1, 1));
                 return new InstallationRecord(destination, manifest);
             }
             finally
@@ -130,6 +134,10 @@ namespace CloudSource.Playnite.Installation
             using (var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (var hash = SHA256.Create())
             {
+                var totalBytes = ResolveContentLength(input, package.SizeBytes);
+                reportProgress?.Invoke(new InstallationProgressUpdate(
+                    InstallationProgressStage.Downloading,
+                    totalBytes: totalBytes));
                 var buffer = new byte[128 * 1024];
                 long size = 0;
                 long nextProgressReport = 4L * 1024 * 1024;
@@ -145,7 +153,7 @@ namespace CloudSource.Playnite.Installation
                         reportProgress?.Invoke(new InstallationProgressUpdate(
                             InstallationProgressStage.Downloading,
                             size,
-                            package.SizeBytes));
+                            totalBytes));
                         nextProgressReport = size + (4L * 1024 * 1024);
                     }
                 }
@@ -153,16 +161,36 @@ namespace CloudSource.Playnite.Installation
                 reportProgress?.Invoke(new InstallationProgressUpdate(
                     InstallationProgressStage.Downloading,
                     size,
-                    package.SizeBytes));
+                    totalBytes));
 
                 hash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-                if (package.SizeBytes > 0 && package.SizeBytes != size)
+                if (totalBytes > 0 && totalBytes != size)
                 {
-                    throw new InvalidDataException($"Downloaded archive size mismatch: expected {package.SizeBytes}, received {size}.");
+                    throw new InvalidDataException($"Downloaded archive size mismatch: expected {totalBytes}, received {size}.");
                 }
 
                 return new DownloadResult(size, BitConverter.ToString(hash.Hash).Replace("-", string.Empty).ToLowerInvariant());
             }
+        }
+
+        private static long ResolveContentLength(Stream input, long packageSize)
+        {
+            if (packageSize > 0)
+            {
+                return packageSize;
+            }
+
+            if (input is IKnownLengthStream knownLength && knownLength.ContentLength.GetValueOrDefault() > 0)
+            {
+                return knownLength.ContentLength.Value;
+            }
+
+            if (input.CanSeek)
+            {
+                return input.Length;
+            }
+
+            return 0;
         }
 
         private static string SelectDestination(string gamesPath, string gameName, string stableId)

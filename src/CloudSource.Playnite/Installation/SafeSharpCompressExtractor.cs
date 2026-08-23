@@ -48,6 +48,15 @@ namespace CloudSource.Playnite.Installation
 
         public ExtractionResult Extract(string archivePath, string extractionRoot, CancellationToken cancellationToken)
         {
+            return Extract(archivePath, extractionRoot, null, cancellationToken);
+        }
+
+        public ExtractionResult Extract(
+            string archivePath,
+            string extractionRoot,
+            Action<long, long> reportProgress,
+            CancellationToken cancellationToken)
+        {
             if (!File.Exists(archivePath))
             {
                 throw new FileNotFoundException($"{archiveLabel} archive does not exist.", archivePath);
@@ -72,6 +81,9 @@ namespace CloudSource.Playnite.Installation
                     entries.Select(CreateDescriptor),
                     archiveLabel);
 
+                long extractedBytes = 0;
+                reportProgress?.Invoke(0, plan.ExpandedBytes);
+
                 foreach (var target in plan.Entries)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -83,8 +95,18 @@ namespace CloudSource.Playnite.Installation
 
                     using (var input = entries[target.Index].OpenEntryStream())
                     {
-                        fileWriter.Write(input, target.Destination, target.Size, cancellationToken);
+                        var completedBeforeEntry = extractedBytes;
+                        fileWriter.Write(
+                            input,
+                            target.Destination,
+                            target.Size,
+                            completedInEntry => reportProgress?.Invoke(
+                                completedBeforeEntry + completedInEntry,
+                                plan.ExpandedBytes),
+                            cancellationToken);
                     }
+
+                    extractedBytes += target.Size;
                 }
 
                 return extractionPolicy.Complete(extractionRoot, plan.ExpandedBytes);

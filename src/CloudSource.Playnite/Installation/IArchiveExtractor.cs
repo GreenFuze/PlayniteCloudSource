@@ -1,4 +1,5 @@
 using CloudSource.Playnite.Providers;
+using System;
 using System.Threading;
 
 namespace CloudSource.Playnite.Installation
@@ -10,6 +11,7 @@ namespace CloudSource.Playnite.Installation
         ExtractionResult Extract(
             string archivePath,
             string extractionRoot,
+            Action<long, long> reportProgress,
             CancellationToken cancellationToken);
     }
 }

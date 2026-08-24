@@ -29,6 +29,7 @@ namespace CloudSource.Playnite.Tests
                 ExtractsSevenZipAndRar(root);
                 RegistersEverySupportedArchiveKind();
                 ClassifiesEmulatedPlatformPackages();
+                RejectsCrossProviderScanResults();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
@@ -93,6 +94,29 @@ namespace CloudSource.Playnite.Tests
             var atari = classifier.Classify("My Drive/Games/Platforms/Atari 2600/game.a26");
             Assert(atari.ContentKind == CloudContentKind.Rom, "An ordinary path-classified ROM was not recognized.");
             Assert(atari.PlatformName == "Atari 2600", "Unknown platform folder name was not preserved for Playnite lookup.");
+        }
+
+        private static void RejectsCrossProviderScanResults()
+        {
+            var package = new SourcePackage(
+                "test-provider",
+                "account-a",
+                "object",
+                "revision",
+                "Games/game.zip",
+                "game.zip",
+                1,
+                null,
+                SourcePackageKind.ZipArchive);
+            var valid = new CloudProviderScanResult("test-provider", "account-a", new[] { package });
+            Assert(valid.Packages.Single() == package, "Valid provider scan result lost its package.");
+
+            AssertThrows<ArgumentException>(
+                () => new CloudProviderScanResult("other-provider", "account-a", new[] { package }),
+                "A provider was allowed to return another provider's package.");
+            AssertThrows<ArgumentException>(
+                () => new CloudProviderScanResult("test-provider", "account-b", new[] { package }),
+                "A provider was allowed to return another account's package.");
         }
 
         private static void InstallsRomWithoutExtraction(string root)
@@ -726,29 +750,60 @@ namespace CloudSource.Playnite.Tests
             if (!condition) throw new InvalidOperationException(message);
         }
 
-        private sealed class MemoryProvider : ICloudSourceProvider
+        private static void AssertThrows<TException>(Action action, string message)
+            where TException : Exception
+        {
+            try
+            {
+                action();
+            }
+            catch (TException)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(message);
+        }
+
+        private abstract class TestCloudProvider : ICloudSourceProvider
+        {
+            public string Id => "test-provider";
+            public abstract string Name { get; }
+            public bool IsConfigured => true;
+            public bool HasStoredConnection => true;
+            public bool HasPendingConnection => false;
+
+            public System.Threading.Tasks.Task<CloudProviderAccount> ConnectAsync(CancellationToken cancellationToken) =>
+                throw new NotSupportedException();
+            public void CommitPendingConnection() => throw new NotSupportedException();
+            public void DiscardPendingConnection() { }
+            public void Disconnect() => throw new NotSupportedException();
+            public CloudProviderFolder SelectSourceFolder(string existingSelectionPath) => throw new NotSupportedException();
+            public System.Threading.Tasks.Task<IReadOnlyList<CloudProviderScanResult>> ScanAsync(CancellationToken cancellationToken) =>
+                throw new NotSupportedException();
+            public abstract System.Threading.Tasks.Task<Stream> OpenReadAsync(
+                SourcePackage package,
+                CancellationToken cancellationToken);
+            public abstract System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
+                SourcePackage package,
+                SourcePackageFile file,
+                CancellationToken cancellationToken);
+        }
+
+        private sealed class MemoryProvider : TestCloudProvider
         {
             private readonly byte[] packageBytes;
 
             public int OpenCalls { get; private set; }
 
-            public string Id => "test-provider";
-            public string Name => "Memory";
-            public bool IsConfigured => true;
+            public override string Name => "Memory";
 
             public MemoryProvider(byte[] packageBytes)
             {
                 this.packageBytes = packageBytes ?? throw new ArgumentNullException(nameof(packageBytes));
             }
 
-            public System.Threading.Tasks.Task<IReadOnlyList<SourcePackage>> ScanAsync(
-                SourceScanRequest request,
-                CancellationToken cancellationToken)
-            {
-                throw new NotSupportedException();
-            }
-
-            public System.Threading.Tasks.Task<Stream> OpenReadAsync(
+            public override System.Threading.Tasks.Task<Stream> OpenReadAsync(
                 SourcePackage package,
                 CancellationToken cancellationToken)
             {
@@ -757,7 +812,7 @@ namespace CloudSource.Playnite.Tests
                 return System.Threading.Tasks.Task.FromResult<Stream>(new MemoryStream(packageBytes, writable: false));
             }
 
-            public System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
+            public override System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
                 SourcePackage package,
                 SourcePackageFile file,
                 CancellationToken cancellationToken)
@@ -766,27 +821,18 @@ namespace CloudSource.Playnite.Tests
             }
         }
 
-        private sealed class PackageFileProvider : ICloudSourceProvider
+        private sealed class PackageFileProvider : TestCloudProvider
         {
             private readonly IReadOnlyDictionary<string, byte[]> files;
 
-            public string Id => "test-provider";
-            public string Name => "Package files";
-            public bool IsConfigured => true;
+            public override string Name => "Package files";
 
             public PackageFileProvider(IReadOnlyDictionary<string, byte[]> files)
             {
                 this.files = files ?? throw new ArgumentNullException(nameof(files));
             }
 
-            public System.Threading.Tasks.Task<IReadOnlyList<SourcePackage>> ScanAsync(
-                SourceScanRequest request,
-                CancellationToken cancellationToken)
-            {
-                throw new NotSupportedException();
-            }
-
-            public System.Threading.Tasks.Task<Stream> OpenReadAsync(
+            public override System.Threading.Tasks.Task<Stream> OpenReadAsync(
                 SourcePackage package,
                 CancellationToken cancellationToken)
             {
@@ -796,7 +842,7 @@ namespace CloudSource.Playnite.Tests
                     cancellationToken);
             }
 
-            public System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
+            public override System.Threading.Tasks.Task<Stream> OpenReadFileAsync(
                 SourcePackage package,
                 SourcePackageFile file,
                 CancellationToken cancellationToken)

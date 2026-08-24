@@ -3,7 +3,9 @@
 Cloud Storage is a Playnite library plugin for discovering and installing games
 stored by cloud and network providers. Google Drive is the first provider.
 
-The plugin is intentionally provider-neutral at its core. Provider objects keep
+The plugin is intentionally provider-neutral at its core. Each integration
+registers one complete `ICloudSourceProvider` facade for connection, folder
+selection, authoritative scanning, and package streams. Provider objects keep
 their stable identity and revision, while local installations live below one
 validated managed root.
 

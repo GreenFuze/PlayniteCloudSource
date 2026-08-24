@@ -1,3 +1,4 @@
+using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Providers.GoogleDrive;
 using CloudSource.Playnite.Storage;
 using Playnite.SDK;
@@ -78,22 +79,25 @@ namespace CloudSource.Playnite
             !string.IsNullOrWhiteSpace(GoogleDriveFolderDisplayPath) &&
             !string.Equals(GoogleDriveFolderDisplayPath.Trim(), "My Drive", StringComparison.OrdinalIgnoreCase);
 
-        public GoogleDriveAccountConfiguration CreateGoogleDriveConfiguration()
+        internal GoogleDriveProviderConfiguration CreateGoogleDriveProviderConfiguration()
         {
-            return new GoogleDriveAccountConfiguration(
+            return new GoogleDriveProviderConfiguration(
+                GoogleDriveEnabled,
                 GoogleDriveClientId,
                 GoogleDriveClientSecret,
                 GoogleDriveAccountId,
-                GoogleDriveAccountDisplayName);
+                GoogleDriveAccountDisplayName,
+                GoogleDriveFolderId,
+                GoogleDriveFolderDisplayPath);
         }
     }
 
     public sealed class CloudSourceSettingsViewModel : ObservableObject, ISettings
     {
         private readonly CloudSourcePlugin plugin;
+        private readonly ICloudSourceProvider googleDriveProvider;
         private CloudSourceSettings editingClone;
         private CloudSourceSettings settings;
-        private GoogleDriveAuthorization pendingGoogleDriveAuthorization;
         private bool pendingGoogleDriveDisconnect;
         private bool googleDriveBusy;
         private string googleDriveStatus;
@@ -124,9 +128,14 @@ namespace CloudSource.Playnite
         public RelayCommand DisconnectGoogleDriveCommand { get; }
         public RelayCommand ChooseGoogleDriveFolderCommand { get; }
 
-        public CloudSourceSettingsViewModel(CloudSourcePlugin plugin)
+        public CloudSourceSettingsViewModel(
+            CloudSourcePlugin plugin,
+            ICloudSourceProvider googleDriveProvider)
         {
             this.plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
+            this.googleDriveProvider = googleDriveProvider ?? throw new ArgumentNullException(nameof(googleDriveProvider));
+            if (!string.Equals(googleDriveProvider.Id, GoogleDriveProvider.ProviderId, StringComparison.Ordinal))
+                throw new ArgumentException("The settings provider must be Google Drive.", nameof(googleDriveProvider));
             Settings = plugin.LoadPluginSettings<CloudSourceSettings>() ?? new CloudSourceSettings();
             ConnectGoogleDriveCommand = new RelayCommand(ConnectGoogleDrive);
             DisconnectGoogleDriveCommand = new RelayCommand(DisconnectGoogleDrive);
@@ -139,7 +148,7 @@ namespace CloudSource.Playnite
         public void BeginEdit()
         {
             editingClone = Serialization.GetClone(Settings);
-            pendingGoogleDriveAuthorization = null;
+            googleDriveProvider.DiscardPendingConnection();
             pendingGoogleDriveDisconnect = false;
             RefreshGoogleDriveStatus();
             OnPropertyChanged(nameof(GoogleDriveFolderSelectionStatus));
@@ -148,7 +157,7 @@ namespace CloudSource.Playnite
         public void CancelEdit()
         {
             Settings = editingClone ?? new CloudSourceSettings();
-            pendingGoogleDriveAuthorization = null;
+            googleDriveProvider.DiscardPendingConnection();
             pendingGoogleDriveDisconnect = false;
             RefreshGoogleDriveStatus();
             OnPropertyChanged(nameof(GoogleDriveFolderSelectionStatus));
@@ -164,22 +173,21 @@ namespace CloudSource.Playnite
             layout.EnsureCreated();
             Settings.ManagedRootPath = layout.RootPath;
 
-            if (pendingGoogleDriveAuthorization != null)
+            if (googleDriveProvider.HasPendingConnection)
             {
-                plugin.CommitGoogleDriveAuthorization(pendingGoogleDriveAuthorization);
+                googleDriveProvider.CommitPendingConnection();
                 plugin.SavePluginSettings(Settings);
             }
             else if (pendingGoogleDriveDisconnect)
             {
                 plugin.SavePluginSettings(Settings);
-                plugin.DisconnectGoogleDrive();
+                googleDriveProvider.Disconnect();
             }
             else
             {
                 plugin.SavePluginSettings(Settings);
             }
 
-            pendingGoogleDriveAuthorization = null;
             pendingGoogleDriveDisconnect = false;
             editingClone = null;
             RefreshGoogleDriveStatus();
@@ -218,7 +226,7 @@ namespace CloudSource.Playnite
                     errors.Add("Choose a concrete Google Drive source folder. My Drive root is intentionally not scanned.");
                 }
 
-                if (pendingGoogleDriveAuthorization == null && !plugin.HasGoogleDriveAuthorization)
+                if (!googleDriveProvider.HasPendingConnection && !googleDriveProvider.HasStoredConnection)
                 {
                     errors.Add("Google Drive authorization is missing. Connect the account again.");
                 }
@@ -245,25 +253,21 @@ namespace CloudSource.Playnite
             GoogleDriveStatus = "Waiting for Google account authorization...";
             try
             {
-                var authorization = await plugin.AuthorizeGoogleDriveAsync(
-                    Settings.GoogleDriveClientId.Trim(),
-                    Settings.GoogleDriveClientSecret.Trim(),
-                    CancellationToken.None);
+                var authorization = await googleDriveProvider.ConnectAsync(CancellationToken.None);
                 var accountChanged = !string.Equals(
                     Settings.GoogleDriveAccountId,
-                    authorization.AccountId,
+                    authorization.Id,
                     StringComparison.Ordinal);
-                pendingGoogleDriveAuthorization = authorization;
                 pendingGoogleDriveDisconnect = false;
                 Settings.GoogleDriveEnabled = true;
-                Settings.GoogleDriveAccountId = authorization.AccountId;
-                Settings.GoogleDriveAccountDisplayName = authorization.AccountDisplayName;
+                Settings.GoogleDriveAccountId = authorization.Id;
+                Settings.GoogleDriveAccountDisplayName = authorization.DisplayName;
                 if (accountChanged)
                 {
                     ClearGoogleDriveFolder();
                 }
 
-                GoogleDriveStatus = $"Connected draft: {authorization.AccountDisplayName}. Save settings to commit.";
+                GoogleDriveStatus = $"Connected draft: {authorization.DisplayName}. Save settings to commit.";
             }
             catch (Exception exception)
             {
@@ -283,7 +287,7 @@ namespace CloudSource.Playnite
                 return;
             }
 
-            pendingGoogleDriveAuthorization = null;
+            googleDriveProvider.DiscardPendingConnection();
             pendingGoogleDriveDisconnect = true;
             Settings.GoogleDriveEnabled = false;
             Settings.GoogleDriveAccountId = null;
@@ -299,7 +303,7 @@ namespace CloudSource.Playnite
                 return;
             }
 
-            if (pendingGoogleDriveAuthorization == null && !plugin.HasGoogleDriveAuthorization)
+            if (!googleDriveProvider.HasPendingConnection && !googleDriveProvider.HasStoredConnection)
             {
                 plugin.ShowError("Connect a Google Drive account before choosing a source folder.");
                 return;
@@ -307,10 +311,7 @@ namespace CloudSource.Playnite
 
             try
             {
-                var selection = plugin.ShowGoogleDriveFolderPicker(
-                    Settings.CreateGoogleDriveConfiguration(),
-                    pendingGoogleDriveAuthorization,
-                    GoogleDriveFolderSelectionStatus);
+                var selection = googleDriveProvider.SelectSourceFolder(GoogleDriveFolderSelectionStatus);
                 if (selection == null)
                 {
                     return;
@@ -336,7 +337,7 @@ namespace CloudSource.Playnite
         private void RefreshGoogleDriveStatus()
         {
             if (Settings.GoogleDriveEnabled &&
-                plugin.HasGoogleDriveAuthorization &&
+                googleDriveProvider.HasStoredConnection &&
                 !string.IsNullOrWhiteSpace(Settings.GoogleDriveAccountDisplayName))
             {
                 GoogleDriveStatus = $"Connected: {Settings.GoogleDriveAccountDisplayName}";

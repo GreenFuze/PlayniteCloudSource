@@ -23,8 +23,6 @@ namespace CloudSource.Playnite
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
         private readonly HttpClient httpClient;
-        private readonly GoogleDriveConnectionService googleDriveConnection;
-        private readonly GoogleDriveFolderPickerDialog googleDriveFolderPicker;
         private readonly CloudArchiveClassifier archiveClassifier;
         private readonly CloudGameMetadataFactory metadataFactory;
         private readonly CloudStorageLibraryMigrator libraryMigrator;
@@ -59,25 +57,26 @@ namespace CloudSource.Playnite
             var tokenStore = new ProtectedGoogleDriveTokenStore(
                 Path.Combine(GetPluginUserDataPath(), "google-drive.token"),
                 PluginId);
-            googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
+            var googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
             var titleNormalizer = new GameTitleNormalizer();
             archiveClassifier = new CloudArchiveClassifier();
             libraryMigrator = new CloudStorageLibraryMigrator(
                 PlayniteApi.Database,
                 titleNormalizer,
                 archiveClassifier);
-            SettingsViewModel = new CloudSourceSettingsViewModel(this);
             var googleDriveApi = new GoogleDriveApiClient(httpClient, googleDriveConnection);
             var googleDriveFolderBrowser = new GoogleDriveFolderBrowser(googleDriveApi);
-            googleDriveFolderPicker = new GoogleDriveFolderPickerDialog(
+            var googleDriveFolderPicker = new GoogleDriveFolderPickerDialog(
                 PlayniteApi.Dialogs,
                 googleDriveFolderBrowser);
+            CloudSourceSettingsViewModel settingsViewModel = null;
             var googleDriveProvider = new GoogleDriveProvider(
-                () => SettingsViewModel.Settings.CreateGoogleDriveConfiguration(),
-                () => SettingsViewModel.Settings.GoogleDriveEnabled &&
-                      SettingsViewModel.Settings.HasConcreteGoogleDriveFolder,
+                () => settingsViewModel.Settings.CreateGoogleDriveProviderConfiguration(),
                 googleDriveConnection,
-                googleDriveApi);
+                googleDriveApi,
+                googleDriveFolderPicker);
+            settingsViewModel = new CloudSourceSettingsViewModel(this, googleDriveProvider);
+            SettingsViewModel = settingsViewModel;
             providerRegistry = new ProviderRegistry(new[] { googleDriveProvider });
             packageCatalog = new SourcePackageCatalog();
             packageResolver = new CloudPackageResolver(packageCatalog);
@@ -128,24 +127,22 @@ namespace CloudSource.Playnite
             foreach (var provider in configuredProviders)
             {
                 args.CancelToken.ThrowIfCancellationRequested();
-                if (provider.Id == GoogleDriveProvider.ProviderId)
+                var scanResults = provider
+                    .ScanAsync(args.CancelToken)
+                    .GetAwaiter()
+                    .GetResult() ?? throw new InvalidOperationException($"Provider '{provider.Id}' returned no scan result collection.");
+                foreach (var scanResult in scanResults)
                 {
-                    var settings = SettingsViewModel.Settings;
-                    var request = new SourceScanRequest(
-                        settings.GoogleDriveAccountId,
-                        new[]
-                        {
-                            new SourceLocation(
-                                settings.GoogleDriveFolderId,
-                                settings.GoogleDriveFolderDisplayPath,
-                                recursive: true)
-                        });
-                    var packages = provider
-                        .ScanAsync(request, args.CancelToken)
-                        .GetAwaiter()
-                        .GetResult();
+                    args.CancelToken.ThrowIfCancellationRequested();
+                    if (scanResult == null ||
+                        !string.Equals(scanResult.ProviderId, provider.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException($"Provider '{provider.Id}' returned an invalid scan scope.");
+                    }
+
+                    var packages = scanResult.Packages;
                     var importablePackages = packages.Where(archiveClassifier.ShouldImport).ToList();
-                    packageCatalog.ReplaceScope(provider.Id, settings.GoogleDriveAccountId, importablePackages);
+                    packageCatalog.ReplaceScope(provider.Id, scanResult.AccountId, importablePackages);
                     var skippedPackages = packages.Count - importablePackages.Count;
                     if (skippedPackages > 0)
                     {
@@ -153,13 +150,10 @@ namespace CloudSource.Playnite
                     }
 
                     authoritativeSnapshots.Add(new AuthoritativeSourceSnapshot(
-                        new CloudSourceScope(provider.Id, settings.GoogleDriveAccountId),
+                        new CloudSourceScope(provider.Id, scanResult.AccountId),
                         importablePackages.Select(package => package.StableId).ToList()));
                     games.AddRange(importablePackages.Select(metadataFactory.Create));
-                    continue;
                 }
-
-                throw new InvalidOperationException($"Provider '{provider.Id}' has no Playnite import adapter.");
             }
 
             args.CancelToken.ThrowIfCancellationRequested();
@@ -363,37 +357,6 @@ namespace CloudSource.Playnite
             {
                 Logger.Info($"{CloudStorageProduct.DisplayName} added editable Playnite actions to {repaired} existing installation(s).");
             }
-        }
-
-        internal Task<GoogleDriveAuthorization> AuthorizeGoogleDriveAsync(
-            string clientId,
-            string clientSecret,
-            CancellationToken cancellationToken)
-        {
-            return googleDriveConnection.AuthorizeAsync(clientId, clientSecret, cancellationToken);
-        }
-
-        internal void CommitGoogleDriveAuthorization(GoogleDriveAuthorization authorization)
-        {
-            googleDriveConnection.Commit(authorization);
-        }
-
-        internal void DisconnectGoogleDrive()
-        {
-            googleDriveConnection.Disconnect();
-        }
-
-        internal bool HasGoogleDriveAuthorization => googleDriveConnection.HasStoredAuthorization;
-
-        internal GoogleDriveFolder ShowGoogleDriveFolderPicker(
-            GoogleDriveAccountConfiguration configuration,
-            GoogleDriveAuthorization draftAuthorization,
-            string existingSelectionPath)
-        {
-            return googleDriveFolderPicker.Show(
-                configuration,
-                draftAuthorization,
-                existingSelectionPath);
         }
 
         internal void ShowError(string message)

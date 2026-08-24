@@ -10,9 +10,16 @@ namespace CloudSource.Playnite.Providers
         string Id { get; }
         string Name { get; }
         bool IsConfigured { get; }
+        bool HasStoredConnection { get; }
+        bool HasPendingConnection { get; }
 
-        Task<IReadOnlyList<SourcePackage>> ScanAsync(
-            SourceScanRequest request,
+        Task<CloudProviderAccount> ConnectAsync(CancellationToken cancellationToken);
+        void CommitPendingConnection();
+        void DiscardPendingConnection();
+        void Disconnect();
+        CloudProviderFolder SelectSourceFolder(string existingSelectionPath);
+
+        Task<IReadOnlyList<CloudProviderScanResult>> ScanAsync(
             CancellationToken cancellationToken);
 
         Task<Stream> OpenReadAsync(

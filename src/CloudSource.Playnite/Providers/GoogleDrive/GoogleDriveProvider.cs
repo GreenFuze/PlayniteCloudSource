@@ -10,25 +10,28 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
     {
         public const string ProviderId = "google-drive";
 
-        private readonly Func<GoogleDriveAccountConfiguration> configurationFactory;
-        private readonly Func<bool> isEnabled;
+        private readonly Func<GoogleDriveProviderConfiguration> configurationFactory;
         private readonly GoogleDriveConnectionService connectionService;
         private readonly GoogleDriveApiClient apiClient;
+        private readonly global::CloudSource.Playnite.GoogleDriveFolderPickerDialog folderPicker;
+        private GoogleDriveAuthorization pendingAuthorization;
 
         public string Id => ProviderId;
         public string Name => "Google Drive";
+        public bool HasStoredConnection => connectionService.HasStoredAuthorization;
+        public bool HasPendingConnection => pendingAuthorization != null;
         public bool IsConfigured
         {
             get
             {
-                if (!isEnabled() || !connectionService.HasStoredAuthorization)
-                {
-                    return false;
-                }
-
                 try
                 {
-                    return configurationFactory() != null;
+                    var configuration = configurationFactory();
+                    if (!configuration.Enabled || !configuration.HasConcreteFolder || !HasStoredConnection)
+                        return false;
+                    configuration.CreateAccountConfiguration();
+                    configuration.CreateScanRequest();
+                    return true;
                 }
                 catch (ArgumentException)
                 {
@@ -38,23 +41,74 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         }
 
         internal GoogleDriveProvider(
-            Func<GoogleDriveAccountConfiguration> configurationFactory,
-            Func<bool> isEnabled,
+            Func<GoogleDriveProviderConfiguration> configurationFactory,
             GoogleDriveConnectionService connectionService,
-            GoogleDriveApiClient apiClient)
+            GoogleDriveApiClient apiClient,
+            global::CloudSource.Playnite.GoogleDriveFolderPickerDialog folderPicker)
         {
             this.configurationFactory = configurationFactory ?? throw new ArgumentNullException(nameof(configurationFactory));
-            this.isEnabled = isEnabled ?? throw new ArgumentNullException(nameof(isEnabled));
             this.connectionService = connectionService ?? throw new ArgumentNullException(nameof(connectionService));
             this.apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
+            this.folderPicker = folderPicker ?? throw new ArgumentNullException(nameof(folderPicker));
         }
 
-        public Task<IReadOnlyList<SourcePackage>> ScanAsync(
-            SourceScanRequest request,
-            CancellationToken cancellationToken)
+        public async Task<CloudProviderAccount> ConnectAsync(CancellationToken cancellationToken)
+        {
+            var configuration = configurationFactory();
+            if (string.IsNullOrWhiteSpace(configuration.ClientId) ||
+                string.IsNullOrWhiteSpace(configuration.ClientSecret))
+            {
+                throw new InvalidOperationException("Google Drive client credentials are required before connecting.");
+            }
+
+            pendingAuthorization = null;
+            pendingAuthorization = await connectionService.AuthorizeAsync(
+                configuration.ClientId,
+                configuration.ClientSecret,
+                cancellationToken).ConfigureAwait(false);
+            return new CloudProviderAccount(
+                pendingAuthorization.AccountId,
+                pendingAuthorization.AccountDisplayName);
+        }
+
+        public void CommitPendingConnection()
+        {
+            if (pendingAuthorization == null)
+                throw new InvalidOperationException("Google Drive has no pending connection to commit.");
+            connectionService.Commit(pendingAuthorization);
+            pendingAuthorization = null;
+        }
+
+        public void DiscardPendingConnection()
+        {
+            pendingAuthorization = null;
+        }
+
+        public void Disconnect()
+        {
+            pendingAuthorization = null;
+            connectionService.Disconnect();
+        }
+
+        public CloudProviderFolder SelectSourceFolder(string existingSelectionPath)
+        {
+            EnsureConnected();
+            var selected = folderPicker.Show(
+                configurationFactory().CreateAccountConfiguration(),
+                pendingAuthorization,
+                existingSelectionPath);
+            return selected == null ? null : new CloudProviderFolder(selected.ObjectId, selected.DisplayPath);
+        }
+
+        public async Task<IReadOnlyList<CloudProviderScanResult>> ScanAsync(CancellationToken cancellationToken)
         {
             EnsureConfigured();
-            return apiClient.ScanAsync(configurationFactory(), request, cancellationToken);
+            var configuration = configurationFactory();
+            var packages = await apiClient.ScanAsync(
+                configuration.CreateAccountConfiguration(),
+                configuration.CreateScanRequest(),
+                cancellationToken).ConfigureAwait(false);
+            return new[] { new CloudProviderScanResult(Id, configuration.AccountId, packages) };
         }
 
         public Task<Stream> OpenReadAsync(
@@ -62,7 +116,10 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             CancellationToken cancellationToken)
         {
             EnsureConfigured();
-            return apiClient.OpenReadAsync(configurationFactory(), package, cancellationToken);
+            return apiClient.OpenReadAsync(
+                configurationFactory().CreateAccountConfiguration(),
+                package,
+                cancellationToken);
         }
 
         public Task<Stream> OpenReadFileAsync(
@@ -71,7 +128,11 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             CancellationToken cancellationToken)
         {
             EnsureConfigured();
-            return apiClient.OpenReadFileAsync(configurationFactory(), package, file, cancellationToken);
+            return apiClient.OpenReadFileAsync(
+                configurationFactory().CreateAccountConfiguration(),
+                package,
+                file,
+                cancellationToken);
         }
 
         private void EnsureConfigured()
@@ -80,6 +141,13 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             {
                 throw new InvalidOperationException("Google Drive is not configured.");
             }
+        }
+
+        private void EnsureConnected()
+        {
+            if (!HasStoredConnection && !HasPendingConnection)
+                throw new InvalidOperationException("Google Drive is not connected.");
+            configurationFactory().CreateAccountConfiguration();
         }
     }
 }

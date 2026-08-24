@@ -112,6 +112,18 @@ Requirements:
 - Playnite SDK 6.16.0
 - A Playnite 10 development build or installation
 
+Google's desktop OAuth token endpoint requires the client credential issued
+with the registered client. Keep it out of source control by creating an
+ignored `CloudSource.BuildSecrets.props` file at the repository root:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <CloudSourceGoogleClientSecret>your-desktop-client-secret</CloudSourceGoogleClientSecret>
+  </PropertyGroup>
+</Project>
+```
+
 ```powershell
 dotnet build .\src\CloudSource.Playnite\CloudSource.Playnite.csproj
 dotnet run --project .\tests\CloudSource.Playnite.Tests\CloudSource.Playnite.Tests.csproj

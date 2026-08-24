@@ -15,7 +15,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
     internal sealed class GoogleDriveConnectionService
     {
         private const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
-        private const string TokenEndpoint = "https://oauth2.googleapis.com/token";
         private const string RevocationEndpoint = "https://oauth2.googleapis.com/revoke";
         private const string AboutEndpoint = "https://www.googleapis.com/drive/v3/about?fields=user(permissionId,displayName,emailAddress)";
         private const string ReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly";
@@ -23,14 +22,19 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         private readonly HttpClient httpClient;
         private readonly IGoogleDriveTokenStore tokenStore;
+        private readonly GoogleOAuthClientCredentials credentials;
         private readonly SemaphoreSlim tokenLock = new SemaphoreSlim(1, 1);
 
         public bool HasStoredAuthorization => tokenStore.Exists;
 
-        public GoogleDriveConnectionService(HttpClient httpClient, IGoogleDriveTokenStore tokenStore)
+        public GoogleDriveConnectionService(
+            HttpClient httpClient,
+            IGoogleDriveTokenStore tokenStore,
+            GoogleOAuthClientCredentials credentials)
         {
             this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             this.tokenStore = tokenStore ?? throw new ArgumentNullException(nameof(tokenStore));
+            this.credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
         }
 
         public async Task<GoogleDriveAuthorization> AuthorizeAsync(
@@ -62,7 +66,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
                 var callback = await ReceiveCallbackAsync(listener, state, cancellationToken).ConfigureAwait(false);
                 var token = await ExchangeCodeAsync(
-                    clientId,
                     redirectUri,
                     callback,
                     codeVerifier,
@@ -171,7 +174,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                     throw new InvalidOperationException("Google Drive authorization cannot be refreshed. Reconnect the account.");
                 }
 
-                var refreshed = await RefreshAsync(configuration, token.RefreshToken, cancellationToken).ConfigureAwait(false);
+                var refreshed = await RefreshAsync(token.RefreshToken, cancellationToken).ConfigureAwait(false);
                 refreshed.RefreshToken = token.RefreshToken;
                 tokenStore.Save(refreshed);
                 return refreshed.AccessToken;
@@ -222,10 +225,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                         "The draft Google Drive authorization cannot be refreshed. Connect the account again.");
                 }
 
-                var refreshed = await RefreshAsync(
-                    configuration,
-                    token.RefreshToken,
-                    cancellationToken).ConfigureAwait(false);
+                var refreshed = await RefreshAsync(token.RefreshToken, cancellationToken).ConfigureAwait(false);
                 refreshed.RefreshToken = token.RefreshToken;
                 draftAuthorization.ReplaceToken(refreshed);
                 return refreshed.AccessToken;
@@ -236,8 +236,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             }
         }
 
-        private async Task<GoogleDriveToken> ExchangeCodeAsync(
-            string clientId,
+        internal async Task<GoogleDriveToken> ExchangeCodeAsync(
             string redirectUri,
             string code,
             string codeVerifier,
@@ -245,27 +244,26 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         {
             var fields = new Dictionary<string, string>
             {
-                ["client_id"] = clientId,
                 ["code"] = code,
                 ["code_verifier"] = codeVerifier,
                 ["grant_type"] = "authorization_code",
                 ["redirect_uri"] = redirectUri
             };
+            credentials.AddTo(fields);
 
             return await RequestTokenAsync(fields, cancellationToken).ConfigureAwait(false);
         }
 
-        private async Task<GoogleDriveToken> RefreshAsync(
-            GoogleDriveAccountConfiguration configuration,
+        internal async Task<GoogleDriveToken> RefreshAsync(
             string refreshToken,
             CancellationToken cancellationToken)
         {
             var fields = new Dictionary<string, string>
             {
-                ["client_id"] = configuration.ClientId,
                 ["refresh_token"] = refreshToken,
                 ["grant_type"] = "refresh_token"
             };
+            credentials.AddTo(fields);
 
             return await RequestTokenAsync(fields, cancellationToken).ConfigureAwait(false);
         }
@@ -274,7 +272,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             IReadOnlyDictionary<string, string> fields,
             CancellationToken cancellationToken)
         {
-            using (var request = new HttpRequestMessage(HttpMethod.Post, TokenEndpoint))
+            using (var request = new HttpRequestMessage(HttpMethod.Post, "https://oauth2.googleapis.com/token"))
             {
                 request.Content = new FormUrlEncodedContent(fields);
                 using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))

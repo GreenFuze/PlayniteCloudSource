@@ -5,6 +5,7 @@ Packages:
     ReleaseDate: 2026-08-24
     PackageUrl: https://github.com/GreenFuze/PlayniteCloudSource/releases/download/v0.4.1/CloudStorage_0_4_1.pext
     Changelog:
+      - Fixed Google Drive sign-in and token refresh for consumer builds.
       - Added MGA and dependency attribution notices.
       - Added provider-policy disclosures and account revocation guidance.
       - Added best-effort Google authorization revocation on disconnect.

@@ -58,7 +58,11 @@ namespace CloudSource.Playnite
             var tokenStore = new ProtectedGoogleDriveTokenStore(
                 Path.Combine(GetPluginUserDataPath(), "google-drive.token"),
                 PluginId);
-            var googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
+            var googleCredentials = GoogleDriveApplication.CreateCredentials();
+            var googleDriveConnection = new GoogleDriveConnectionService(
+                httpClient,
+                tokenStore,
+                googleCredentials);
             var titleNormalizer = new GameTitleNormalizer();
             archiveClassifier = new CloudArchiveClassifier();
             var packageDiscovery = new CloudPackageDiscovery();
@@ -74,7 +78,7 @@ namespace CloudSource.Playnite
             CloudSourceSettingsViewModel settingsViewModel = null;
             var googleDriveProvider = new GoogleDriveProvider(
                 () => settingsViewModel.Settings.CreateGoogleDriveProviderConfiguration(),
-                GoogleDriveApplication.ClientId,
+                googleCredentials.ClientId,
                 googleDriveConnection,
                 googleDriveApi,
                 googleDriveFolderPicker);

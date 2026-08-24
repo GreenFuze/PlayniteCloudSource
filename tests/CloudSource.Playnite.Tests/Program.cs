@@ -38,6 +38,7 @@ namespace CloudSource.Playnite.Tests
                 ScansAndDownloadsOneDrivePackages();
                 RejectsForeignOneDrivePagingLinks();
                 RevokesGoogleAuthorizationOnDisconnect();
+                SendsGoogleClientCredentialsForTokenRequests();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
@@ -217,13 +218,50 @@ namespace CloudSource.Playnite.Tests
             });
             using (var httpClient = new HttpClient(handler))
             {
-                var connection = new GoogleDriveConnectionService(httpClient, tokenStore);
+                var connection = new GoogleDriveConnectionService(
+                    httpClient,
+                    tokenStore,
+                    new GoogleOAuthClientCredentials("client-id", "client-secret"));
                 connection.Disconnect();
             }
 
             Assert(handler.SawRevocationRequest, "Google authorization was not revoked on disconnect.");
             Assert(handler.RequestBody.Contains("token=refresh-token"), "Google revocation did not prefer the refresh token.");
             Assert(!tokenStore.Exists, "Google authorization remained in local storage after disconnect.");
+        }
+
+        private static void SendsGoogleClientCredentialsForTokenRequests()
+        {
+            var handler = new GoogleTokenHttpHandler();
+            var tokenStore = new MemoryGoogleDriveTokenStore(new GoogleDriveToken
+            {
+                AccessToken = "expired-token",
+                RefreshToken = "refresh-token"
+            });
+            using (var httpClient = new HttpClient(handler))
+            {
+                var connection = new GoogleDriveConnectionService(
+                    httpClient,
+                    tokenStore,
+                    new GoogleOAuthClientCredentials("client-id", "client-secret"));
+                connection.ExchangeCodeAsync(
+                    "http://127.0.0.1:12345/oauth2/callback",
+                    "authorization-code",
+                    "code-verifier",
+                    CancellationToken.None).GetAwaiter().GetResult();
+                connection.RefreshAsync("refresh-token", CancellationToken.None)
+                    .GetAwaiter().GetResult();
+            }
+
+            Assert(handler.RequestBodies.Count == 2, "Google token requests were not both issued.");
+            Assert(handler.RequestBodies.All(body => body.Contains("client_id=client-id")),
+                "A Google token request omitted the client ID.");
+            Assert(handler.RequestBodies.All(body => body.Contains("client_secret=client-secret")),
+                "A Google token request omitted the desktop client secret.");
+            Assert(handler.RequestBodies[0].Contains("grant_type=authorization_code"),
+                "The Google authorization-code exchange was not exercised.");
+            Assert(handler.RequestBodies[1].Contains("grant_type=refresh_token"),
+                "The Google refresh exchange was not exercised.");
         }
 
         private static void InstallsRomWithoutExtraction(string root)
@@ -920,6 +958,25 @@ namespace CloudSource.Playnite.Tests
                         StringComparison.Ordinal);
                 RequestBody = request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            }
+        }
+
+        private sealed class GoogleTokenHttpHandler : HttpMessageHandler
+        {
+            public List<string> RequestBodies { get; } = new List<string>();
+
+            protected override System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                RequestBodies.Add(request.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+                return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"access_token\":\"new-access-token\",\"refresh_token\":\"new-refresh-token\",\"expires_in\":3600}",
+                        Encoding.UTF8,
+                        "application/json")
+                });
             }
         }
 

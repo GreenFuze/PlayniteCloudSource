@@ -1,5 +1,6 @@
 using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Providers.GoogleDrive;
+using CloudSource.Playnite.Providers.OneDrive;
 using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Storage;
 using CloudSource.Playnite.Installation;
@@ -60,11 +61,12 @@ namespace CloudSource.Playnite
             var googleDriveConnection = new GoogleDriveConnectionService(httpClient, tokenStore);
             var titleNormalizer = new GameTitleNormalizer();
             archiveClassifier = new CloudArchiveClassifier();
+            var packageDiscovery = new CloudPackageDiscovery();
             libraryMigrator = new CloudStorageLibraryMigrator(
                 PlayniteApi.Database,
                 titleNormalizer,
                 archiveClassifier);
-            var googleDriveApi = new GoogleDriveApiClient(httpClient, googleDriveConnection);
+            var googleDriveApi = new GoogleDriveApiClient(httpClient, googleDriveConnection, packageDiscovery);
             var googleDriveFolderBrowser = new GoogleDriveFolderBrowser(googleDriveApi);
             var googleDriveFolderPicker = new GoogleDriveFolderPickerDialog(
                 PlayniteApi.Dialogs,
@@ -75,9 +77,31 @@ namespace CloudSource.Playnite
                 googleDriveConnection,
                 googleDriveApi,
                 googleDriveFolderPicker);
-            settingsViewModel = new CloudSourceSettingsViewModel(this, googleDriveProvider);
+            var oneDriveTokenStore = new ProtectedOneDriveTokenStore(
+                Path.Combine(GetPluginUserDataPath(), "onedrive.token"),
+                PluginId);
+            var oneDriveConnection = new OneDriveConnectionService(httpClient, oneDriveTokenStore);
+            var oneDriveApi = new OneDriveApiClient(httpClient, oneDriveConnection, packageDiscovery);
+            var oneDriveFolderBrowser = new OneDriveFolderBrowser(oneDriveApi);
+            var oneDriveFolderPicker = new OneDriveFolderPickerDialog(
+                PlayniteApi.Dialogs,
+                oneDriveFolderBrowser);
+            var oneDriveProvider = new OneDriveProvider(
+                () => settingsViewModel.Settings.CreateOneDriveProviderConfiguration(),
+                OneDriveApplication.ClientId,
+                oneDriveConnection,
+                oneDriveApi,
+                oneDriveFolderPicker);
+            settingsViewModel = new CloudSourceSettingsViewModel(
+                this,
+                googleDriveProvider,
+                oneDriveProvider);
             SettingsViewModel = settingsViewModel;
-            providerRegistry = new ProviderRegistry(new[] { googleDriveProvider });
+            providerRegistry = new ProviderRegistry(new ICloudSourceProvider[]
+            {
+                googleDriveProvider,
+                oneDriveProvider
+            });
             packageCatalog = new SourcePackageCatalog();
             packageResolver = new CloudPackageResolver(packageCatalog);
             manifestStore = new InstallationManifestStore(GetManagedStorageLayout);

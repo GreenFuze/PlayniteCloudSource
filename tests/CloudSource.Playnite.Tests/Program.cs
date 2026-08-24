@@ -3,12 +3,16 @@ using CloudSource.Playnite.Emulation;
 using CloudSource.Playnite.Installation;
 using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Providers.GoogleDrive;
+using CloudSource.Playnite.Providers.OneDrive;
 using CloudSource.Playnite.Storage;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 using System.Threading;
@@ -30,6 +34,9 @@ namespace CloudSource.Playnite.Tests
                 RegistersEverySupportedArchiveKind();
                 ClassifiesEmulatedPlatformPackages();
                 RejectsCrossProviderScanResults();
+                DiscoversPackagesIdenticallyAcrossProviders();
+                ScansAndDownloadsOneDrivePackages();
+                RejectsForeignOneDrivePagingLinks();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
@@ -117,6 +124,86 @@ namespace CloudSource.Playnite.Tests
             AssertThrows<ArgumentException>(
                 () => new CloudProviderScanResult("test-provider", "account-b", new[] { package }),
                 "A provider was allowed to return another account's package.");
+        }
+
+        private static void DiscoversPackagesIdenticallyAcrossProviders()
+        {
+            var files = new[]
+            {
+                new CloudFileEntry("zip", "r1", "Games/Test.zip", "Test.zip", 10, null),
+                new CloudFileEntry("setup", "r2", "Games/setup_game.exe", "setup_game.exe", 20, null),
+                new CloudFileEntry("bin", "r3", "Games/setup_game-1.bin", "setup_game-1.bin", 30, null),
+                new CloudFileEntry("rom", "r4", "Games/Platforms/MAME/arknoid2.rom", "arknoid2.rom", 40, null)
+            };
+            var discovery = new CloudPackageDiscovery();
+            var google = discovery.Discover("google-drive", "account", files);
+            var oneDrive = discovery.Discover("onedrive", "account", files);
+            Assert(
+                google.Select(package => package.Kind).SequenceEqual(oneDrive.Select(package => package.Kind)),
+                "Providers did not use identical package discovery rules.");
+            var installer = oneDrive.Single(package => package.Kind == SourcePackageKind.InnoInstallerBundle);
+            Assert(installer.Files.Count == 2 && installer.SizeBytes == 50, "OneDrive installer companions were not grouped.");
+            Assert(oneDrive.Any(package => package.Kind == SourcePackageKind.RomFile), "OneDrive ROM package was not discovered.");
+        }
+
+        private static void ScansAndDownloadsOneDrivePackages()
+        {
+            var handler = new OneDriveHttpHandler();
+            using (var httpClient = new HttpClient(handler))
+            {
+                var tokenStore = new MemoryOneDriveTokenStore(new OneDriveToken
+                {
+                    AccessToken = "access-token",
+                    RefreshToken = "refresh-token",
+                    ExpiresAtUtc = DateTime.UtcNow.AddHours(1),
+                    ExpiresInSeconds = 3600
+                });
+                var connection = new OneDriveConnectionService(httpClient, tokenStore);
+                var api = new OneDriveApiClient(httpClient, connection, new CloudPackageDiscovery());
+                var configuration = new OneDriveAccountConfiguration("client", "account", "player@example.com");
+                var packages = api.ScanAsync(
+                    configuration,
+                    new SourceScanRequest(
+                        "account",
+                        new[] { new SourceLocation("folder!123", "OneDrive/Games", recursive: true) }),
+                    CancellationToken.None).GetAwaiter().GetResult();
+                Assert(packages.Count == 1, "OneDrive Graph scan returned an unexpected package count.");
+                var package = packages.Single();
+                Assert(package.ProviderId == OneDriveProvider.ProviderId, "OneDrive package has the wrong provider identity.");
+                Assert(package.Kind == SourcePackageKind.SevenZipArchive, "OneDrive 7z package kind was not preserved.");
+                using (var stream = api.OpenReadAsync(configuration, package, CancellationToken.None).GetAwaiter().GetResult())
+                using (var memory = new MemoryStream())
+                {
+                    stream.CopyTo(memory);
+                    Assert(Encoding.ASCII.GetString(memory.ToArray()) == "onedrive-content", "OneDrive download stream content changed.");
+                }
+                Assert(handler.SawAuthorizedRequest, "OneDrive Graph requests were not authorized.");
+            }
+        }
+
+        private static void RejectsForeignOneDrivePagingLinks()
+        {
+            using (var httpClient = new HttpClient(new OneDriveHttpHandler(includeForeignNextLink: true)))
+            {
+                var connection = new OneDriveConnectionService(
+                    httpClient,
+                    new MemoryOneDriveTokenStore(new OneDriveToken
+                    {
+                        AccessToken = "access-token",
+                        RefreshToken = "refresh-token",
+                        ExpiresAtUtc = DateTime.UtcNow.AddHours(1),
+                        ExpiresInSeconds = 3600
+                    }));
+                var api = new OneDriveApiClient(httpClient, connection, new CloudPackageDiscovery());
+                AssertThrows<InvalidDataException>(
+                    () => api.ScanAsync(
+                        new OneDriveAccountConfiguration("client", "account", "player@example.com"),
+                        new SourceScanRequest(
+                            "account",
+                            new[] { new SourceLocation("folder!123", "OneDrive/Games", recursive: true) }),
+                        CancellationToken.None).GetAwaiter().GetResult(),
+                    "OneDrive accepted a paging link outside Microsoft Graph.");
+            }
         }
 
         private static void InstallsRomWithoutExtraction(string root)
@@ -763,6 +850,64 @@ namespace CloudSource.Playnite.Tests
             }
 
             throw new InvalidOperationException(message);
+        }
+
+        private sealed class MemoryOneDriveTokenStore : IOneDriveTokenStore
+        {
+            private OneDriveToken token;
+
+            public bool Exists => token != null;
+
+            public MemoryOneDriveTokenStore(OneDriveToken token)
+            {
+                this.token = token ?? throw new ArgumentNullException(nameof(token));
+            }
+
+            public OneDriveToken Load() => token ?? throw new InvalidOperationException("No token.");
+            public void Save(OneDriveToken value) => token = value ?? throw new ArgumentNullException(nameof(value));
+            public void Clear() => token = null;
+        }
+
+        private sealed class OneDriveHttpHandler : HttpMessageHandler
+        {
+            private readonly bool includeForeignNextLink;
+            public bool SawAuthorizedRequest { get; private set; }
+
+            public OneDriveHttpHandler(bool includeForeignNextLink = false)
+            {
+                this.includeForeignNextLink = includeForeignNextLink;
+            }
+
+            protected override System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                SawAuthorizedRequest |= string.Equals(
+                    request.Headers.Authorization?.Parameter,
+                    "access-token",
+                    StringComparison.Ordinal);
+                if (request.RequestUri.AbsolutePath.EndsWith("/content", StringComparison.Ordinal))
+                {
+                    return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(Encoding.ASCII.GetBytes("onedrive-content"))
+                    });
+                }
+
+                var json = "{\"value\":[{" +
+                           "\"id\":\"archive!1\"," +
+                           "\"name\":\"Subnautica.7z\"," +
+                           "\"size\":123," +
+                           "\"eTag\":\"etag-1\"," +
+                           "\"lastModifiedDateTime\":\"2026-08-24T12:00:00Z\"," +
+                           "\"file\":{\"mimeType\":\"application/x-7z-compressed\"}}]" +
+                           (includeForeignNextLink ? ",\"@odata.nextLink\":\"https://evil.example/steal\"" : string.Empty) +
+                           "}";
+                return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                });
+            }
         }
 
         private abstract class TestCloudProvider : ICloudSourceProvider

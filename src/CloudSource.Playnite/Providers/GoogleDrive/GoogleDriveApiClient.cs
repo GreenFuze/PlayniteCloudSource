@@ -14,31 +14,22 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
     {
         private const string ApiBaseUri = "https://www.googleapis.com/drive/v3/";
         private const string FolderMimeType = "application/vnd.google-apps.folder";
-        private static readonly HashSet<string> RomExtensions = new HashSet<string>(
-            new[]
-            {
-                ".32x", ".a26", ".a52", ".a78", ".col", ".fds", ".gb", ".gba", ".gbc", ".gen",
-                ".gg", ".int", ".j64", ".jag", ".lnx", ".md", ".n64", ".nds", ".nes", ".ngc",
-                ".ngp", ".pce", ".rom", ".sfc", ".smc", ".smd", ".sms", ".unf", ".unif", ".v64",
-                ".vec", ".ws", ".wsc", ".z64"
-            },
-            StringComparer.OrdinalIgnoreCase);
-        private static readonly HashSet<string> IntrinsicPlatformRomExtensions = new HashSet<string>(
-            new[] { ".32x", ".fds", ".gb", ".gba", ".gbc", ".gen", ".gg", ".md", ".n64", ".nes", ".sfc", ".smc", ".smd", ".sms", ".v64", ".z64" },
-            StringComparer.OrdinalIgnoreCase);
         private static readonly Regex ObjectIdPattern = new Regex(
             "^[A-Za-z0-9_-]+$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private readonly HttpClient httpClient;
         private readonly GoogleDriveConnectionService connectionService;
+        private readonly CloudPackageDiscovery packageDiscovery;
 
         public GoogleDriveApiClient(
             HttpClient httpClient,
-            GoogleDriveConnectionService connectionService)
+            GoogleDriveConnectionService connectionService,
+            CloudPackageDiscovery packageDiscovery)
         {
             this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             this.connectionService = connectionService ?? throw new ArgumentNullException(nameof(connectionService));
+            this.packageDiscovery = packageDiscovery ?? throw new ArgumentNullException(nameof(packageDiscovery));
         }
 
         public async Task<IReadOnlyList<SourcePackage>> ScanAsync(
@@ -242,92 +233,26 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             var regularFiles = folderFiles
                 .Where(file => !string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal))
                 .ToList();
-            foreach (var file in regularFiles)
+            var cloudFiles = regularFiles.Select(file =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateListedFile(file);
                 var logicalPath = CombineLogicalPath(displayPath, file.Name);
-                if (!TryGetPackageKind(file.Name, logicalPath, out var kind)) continue;
-                packages.Add(CreateSingleFilePackage(accountId, file, logicalPath, kind));
-            }
-
-            foreach (var setup in regularFiles.Where(file => IsInstallerSetupName(file.Name)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                ValidateListedFile(setup);
-                var setupPath = CombineLogicalPath(displayPath, setup.Name);
-                var files = new List<SourcePackageFile>
-                {
-                    CreatePackageFile(setup, setupPath, SourcePackageFileRole.Primary)
-                };
-                files.AddRange(regularFiles
-                    .Where(file => IsMatchingInstallerCompanion(setup.Name, file.Name))
-                    .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(file =>
-                    {
-                        ValidateListedFile(file);
-                        return CreatePackageFile(
-                            file,
-                            CombineLogicalPath(displayPath, file.Name),
-                            SourcePackageFileRole.Companion);
-                    }));
-                long totalSize;
-                try
-                {
-                    totalSize = files.Aggregate(0L, (total, file) => checked(total + file.SizeBytes));
-                }
-                catch (OverflowException exception)
-                {
-                    throw new InvalidDataException($"Installer package '{setupPath}' is too large.", exception);
-                }
-
-                packages.Add(new SourcePackage(
-                    GoogleDriveProvider.ProviderId,
-                    accountId,
-                    setup.Id,
-                    string.Join("|", files.Select(file => file.Revision)),
-                    setupPath,
-                    setup.Name,
-                    totalSize,
-                    files.Select(file => ParseModifiedAt(file.LogicalPath, regularFiles.Single(source => source.Id == file.ObjectId)))
-                        .Where(value => value.HasValue)
-                        .OrderByDescending(value => value.Value)
-                        .FirstOrDefault(),
-                    SourcePackageKind.InnoInstallerBundle,
-                    files));
-            }
-        }
-
-        private static SourcePackage CreateSingleFilePackage(
-            string accountId,
-            GoogleDriveFile file,
-            string logicalPath,
-            SourcePackageKind kind)
-        {
-            return new SourcePackage(
+                return new CloudFileEntry(
+                    file.Id,
+                    FirstNonEmpty(file.Md5Checksum, file.Version, file.ModifiedTime),
+                    logicalPath,
+                    file.Name,
+                    ParseSize(logicalPath, file.Size),
+                    ParseModifiedAt(logicalPath, file));
+            }).ToList();
+            foreach (var package in packageDiscovery.Discover(
                 GoogleDriveProvider.ProviderId,
                 accountId,
-                file.Id,
-                FirstNonEmpty(file.Md5Checksum, file.Version, file.ModifiedTime),
-                logicalPath,
-                file.Name,
-                ParseSize(logicalPath, file.Size),
-                ParseModifiedAt(logicalPath, file),
-                kind);
-        }
-
-        private static SourcePackageFile CreatePackageFile(
-            GoogleDriveFile file,
-            string logicalPath,
-            SourcePackageFileRole role)
-        {
-            return new SourcePackageFile(
-                file.Id,
-                FirstNonEmpty(file.Md5Checksum, file.Version, file.ModifiedTime),
-                logicalPath,
-                file.Name,
-                ParseSize(logicalPath, file.Size),
-                role);
+                cloudFiles))
+            {
+                packages.Add(package);
+            }
         }
 
         private static void ValidateListedFile(GoogleDriveFile file)
@@ -363,25 +288,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             }
 
             return parsedModifiedAt;
-        }
-
-        private static bool IsInstallerSetupName(string name)
-        {
-            var fileName = Path.GetFileName(name ?? string.Empty);
-            return string.Equals(fileName, "setup.exe", StringComparison.OrdinalIgnoreCase) ||
-                (fileName.StartsWith("setup_", StringComparison.OrdinalIgnoreCase) &&
-                 fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static bool IsMatchingInstallerCompanion(string setupName, string candidateName)
-        {
-            if (!candidateName.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)) return false;
-            var setupStem = Path.GetFileNameWithoutExtension(setupName);
-            var companionStem = Path.GetFileNameWithoutExtension(candidateName);
-            var separator = companionStem.LastIndexOf('-');
-            if (separator <= 0 || separator == companionStem.Length - 1) return false;
-            if (!companionStem.Substring(separator + 1).All(char.IsDigit)) return false;
-            return string.Equals(companionStem.Substring(0, separator), setupStem, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<GoogleDriveFileListResponse> ListFolderPageAsync(
@@ -510,50 +416,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
             var safeName = name.Trim().Replace('/', '\u2215').Replace('\\', '\u2215');
             return parent.Trim().TrimEnd('/') + "/" + safeName;
-        }
-
-        private static bool TryGetPackageKind(string name, string logicalPath, out SourcePackageKind kind)
-        {
-            var extension = Path.GetExtension(name);
-            if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                kind = SourcePackageKind.ZipArchive;
-                return true;
-            }
-
-            if (string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
-            {
-                kind = SourcePackageKind.SevenZipArchive;
-                return true;
-            }
-
-            if (string.Equals(extension, ".rar", StringComparison.OrdinalIgnoreCase))
-            {
-                kind = SourcePackageKind.RarArchive;
-                return true;
-            }
-
-            if (RomExtensions.Contains(extension) &&
-                (IntrinsicPlatformRomExtensions.Contains(extension) || IsPlatformPath(logicalPath)))
-            {
-                kind = SourcePackageKind.RomFile;
-                return true;
-            }
-
-            kind = default(SourcePackageKind);
-            return false;
-        }
-
-        private static bool IsPlatformPath(string logicalPath)
-        {
-            var segments = (logicalPath ?? string.Empty)
-                .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-            for (var index = 0; index + 1 < segments.Length; index++)
-            {
-                if (string.Equals(segments[index], "Platforms", StringComparison.OrdinalIgnoreCase)) return true;
-            }
-
-            return false;
         }
 
         private static string FirstNonEmpty(params string[] values)

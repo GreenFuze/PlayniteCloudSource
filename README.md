@@ -1,7 +1,8 @@
 # Playnite Cloud Storage
 
 Cloud Storage is a Playnite library plugin for discovering and installing games
-stored by cloud and network providers. Google Drive is the first provider.
+stored by cloud and network providers. Google Drive and Microsoft OneDrive are
+implemented providers.
 
 The plugin is intentionally provider-neutral at its core. Each integration
 registers one complete `ICloudSourceProvider` facade for connection, folder
@@ -18,6 +19,9 @@ The current vertical slice provides:
 - Google OAuth desktop-app authorization with PKCE and state validation;
 - Windows-user-bound encryption for access and refresh tokens;
 - a theme-aware Google Drive folder picker for My Drive and Shared with me;
+- Microsoft public-client authorization with PKCE, explicit account selection,
+  and delegated `Files.Read`/`User.Read` access;
+- a OneDrive My files folder picker and recursive Microsoft Graph discovery;
 - MGA-style archive title cleanup and path-derived Playnite platforms;
 - exclusion of MGA sync storage from the game archive inventory;
 - recursive, paginated, read-only discovery of ZIP, 7z, and RAR archives;
@@ -32,9 +36,12 @@ The current vertical slice provides:
 - authoritative successful-scan reconciliation: missing uninstalled games are
   removed, while installed games are retained and tagged as source unavailable.
 
-Google Drive credentials, authorization, and a concrete source folder are
-supplied by the player. Drive roots are browse-only to prevent accidental
-whole-drive imports. Cloud Storage does not modify or delete cloud files. Game
+Google Drive developer credentials, provider authorization, and a concrete
+source folder are supplied by the player. OneDrive uses the plugin publisher's
+public application ID, so players only sign in and choose a folder. Drive roots
+are browse-only to prevent accidental whole-drive imports. OneDrive currently
+scans folders in My files; shared-item
+collections are not yet selectable. Cloud Storage does not modify or delete cloud files. Game
 archives are installed and removed locally; password-protected and multi-volume
 archives are rejected. Multi-file disc sets, ScummVM directories, BIOS/firmware,
 and shared emulator dependencies remain follow-up content strategies.

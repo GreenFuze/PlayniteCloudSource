@@ -50,6 +50,34 @@
             </Border>
             <TextBlock Margin="0,0,0,8" Opacity="0.7" TextWrapping="Wrap"
                        Text="Choose a concrete folder from My Drive or Shared with me. Cloud Storage stores its stable Drive ID, so renaming the folder does not redirect the source." />
+
+            <Separator Margin="0,20,0,16" />
+            <TextBlock FontSize="16" FontWeight="SemiBold" Text="OneDrive" />
+            <TextBlock Margin="0,8,0,12" TextWrapping="Wrap"
+                       Text="OneDrive is read-only. It uses the same archive, installer-bundle, and ROM discovery rules as Google Drive." />
+
+            <TextBlock Margin="0,0,0,12" Opacity="0.7" TextWrapping="Wrap"
+                       Text="Click Connect OneDrive and sign in with your Microsoft account. Cloud Storage requests read-only file access. Tokens are encrypted for this Windows account." />
+
+            <StackPanel Orientation="Horizontal">
+                <Button MinWidth="150" Padding="12,5" Content="Connect OneDrive"
+                        Command="{Binding ConnectOneDriveCommand}" />
+                <Button MinWidth="110" Margin="8,0,0,0" Padding="12,5" Content="Disconnect"
+                        Command="{Binding DisconnectOneDriveCommand}" />
+            </StackPanel>
+            <TextBlock Margin="0,8,0,12" Text="{Binding OneDriveStatus}" TextWrapping="Wrap" />
+
+            <TextBlock Text="Game archive folder" />
+            <Border Margin="0,4,0,8" Padding="10" BorderThickness="1" BorderBrush="#40708090">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" MinWidth="120" Margin="12,0,0,0" Padding="10,5"
+                            Content="Choose folder..." Command="{Binding ChooseOneDriveFolderCommand}" />
+                    <TextBlock VerticalAlignment="Center" FontWeight="SemiBold"
+                               Text="{Binding OneDriveFolderSelectionStatus}" TextWrapping="Wrap" />
+                </DockPanel>
+            </Border>
+            <TextBlock Margin="0,0,0,8" Opacity="0.7" TextWrapping="Wrap"
+                       Text="Choose a concrete folder from OneDrive My files. The stable drive item ID is retained if the folder is renamed." />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

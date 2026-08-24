@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Net.Http;
 
-namespace CloudSource.Playnite.Providers.GoogleDrive
+namespace CloudSource.Playnite.Providers
 {
     internal sealed class HttpResponseStream : Stream, IKnownLengthStream
     {

@@ -74,6 +74,7 @@ namespace CloudSource.Playnite
             CloudSourceSettingsViewModel settingsViewModel = null;
             var googleDriveProvider = new GoogleDriveProvider(
                 () => settingsViewModel.Settings.CreateGoogleDriveProviderConfiguration(),
+                GoogleDriveApplication.ClientId,
                 googleDriveConnection,
                 googleDriveApi,
                 googleDriveFolderPicker);

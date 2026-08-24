@@ -22,14 +22,8 @@
             <TextBlock Margin="0,8,0,12" TextWrapping="Wrap"
                         Text="The first provider is read-only. Cloud Storage discovers ZIP, 7z, and RAR archives and never deletes them during local uninstall." />
 
-            <TextBlock Text="OAuth desktop client ID" />
-            <TextBox Margin="0,4,0,8"
-                     Text="{Binding Settings.GoogleDriveClientId, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Text="OAuth desktop client secret" />
-            <TextBox Margin="0,4,0,4"
-                     Text="{Binding Settings.GoogleDriveClientSecret, UpdateSourceTrigger=PropertyChanged}" />
             <TextBlock Margin="0,0,0,12" Opacity="0.7" TextWrapping="Wrap"
-                       Text="Use a Google OAuth client of type Desktop app. User access and refresh tokens are encrypted for this Windows account and are not stored in plugin settings." />
+                       Text="Click Connect Google Drive and sign in with your Google account. Cloud Storage requests read-only file access. Tokens are encrypted for this Windows account." />
 
             <StackPanel Orientation="Horizontal">
                 <Button MinWidth="150" Padding="12,5" Content="Connect Google Drive"

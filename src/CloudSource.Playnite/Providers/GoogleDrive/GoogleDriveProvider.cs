@@ -11,6 +11,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         public const string ProviderId = "google-drive";
 
         private readonly Func<GoogleDriveProviderConfiguration> configurationFactory;
+        private readonly string clientId;
         private readonly GoogleDriveConnectionService connectionService;
         private readonly GoogleDriveApiClient apiClient;
         private readonly global::CloudSource.Playnite.GoogleDriveFolderPickerDialog folderPicker;
@@ -29,7 +30,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                     var configuration = configurationFactory();
                     if (!configuration.Enabled || !configuration.HasConcreteFolder || !HasStoredConnection)
                         return false;
-                    configuration.CreateAccountConfiguration();
+                    configuration.CreateAccountConfiguration(clientId);
                     configuration.CreateScanRequest();
                     return true;
                 }
@@ -42,11 +43,13 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         internal GoogleDriveProvider(
             Func<GoogleDriveProviderConfiguration> configurationFactory,
+            string clientId,
             GoogleDriveConnectionService connectionService,
             GoogleDriveApiClient apiClient,
             global::CloudSource.Playnite.GoogleDriveFolderPickerDialog folderPicker)
         {
             this.configurationFactory = configurationFactory ?? throw new ArgumentNullException(nameof(configurationFactory));
+            this.clientId = clientId?.Trim();
             this.connectionService = connectionService ?? throw new ArgumentNullException(nameof(connectionService));
             this.apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
             this.folderPicker = folderPicker ?? throw new ArgumentNullException(nameof(folderPicker));
@@ -54,17 +57,12 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         public async Task<CloudProviderAccount> ConnectAsync(CancellationToken cancellationToken)
         {
-            var configuration = configurationFactory();
-            if (string.IsNullOrWhiteSpace(configuration.ClientId) ||
-                string.IsNullOrWhiteSpace(configuration.ClientSecret))
-            {
-                throw new InvalidOperationException("Google Drive client credentials are required before connecting.");
-            }
+            if (string.IsNullOrWhiteSpace(clientId))
+                throw new InvalidOperationException("This Cloud Storage build has no Google application registration configured.");
 
             pendingAuthorization = null;
             pendingAuthorization = await connectionService.AuthorizeAsync(
-                configuration.ClientId,
-                configuration.ClientSecret,
+                clientId,
                 cancellationToken).ConfigureAwait(false);
             return new CloudProviderAccount(
                 pendingAuthorization.AccountId,
@@ -94,7 +92,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         {
             EnsureConnected();
             var selected = folderPicker.Show(
-                configurationFactory().CreateAccountConfiguration(),
+                configurationFactory().CreateAccountConfiguration(clientId),
                 pendingAuthorization,
                 existingSelectionPath);
             return selected == null ? null : new CloudProviderFolder(selected.ObjectId, selected.DisplayPath);
@@ -105,7 +103,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             EnsureConfigured();
             var configuration = configurationFactory();
             var packages = await apiClient.ScanAsync(
-                configuration.CreateAccountConfiguration(),
+                configuration.CreateAccountConfiguration(clientId),
                 configuration.CreateScanRequest(),
                 cancellationToken).ConfigureAwait(false);
             return new[] { new CloudProviderScanResult(Id, configuration.AccountId, packages) };
@@ -117,7 +115,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         {
             EnsureConfigured();
             return apiClient.OpenReadAsync(
-                configurationFactory().CreateAccountConfiguration(),
+                configurationFactory().CreateAccountConfiguration(clientId),
                 package,
                 cancellationToken);
         }
@@ -129,7 +127,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         {
             EnsureConfigured();
             return apiClient.OpenReadFileAsync(
-                configurationFactory().CreateAccountConfiguration(),
+                configurationFactory().CreateAccountConfiguration(clientId),
                 package,
                 file,
                 cancellationToken);
@@ -147,7 +145,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         {
             if (!HasStoredConnection && !HasPendingConnection)
                 throw new InvalidOperationException("Google Drive is not connected.");
-            configurationFactory().CreateAccountConfiguration();
+            configurationFactory().CreateAccountConfiguration(clientId);
         }
     }
 }

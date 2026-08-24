@@ -34,11 +34,9 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         public async Task<GoogleDriveAuthorization> AuthorizeAsync(
             string clientId,
-            string clientSecret,
             CancellationToken cancellationToken)
         {
             clientId = Required(clientId, nameof(clientId));
-            clientSecret = Required(clientSecret, nameof(clientSecret));
 
             var state = CreateRandomUrlSafeValue(32);
             var codeVerifier = CreateRandomUrlSafeValue(64);
@@ -64,7 +62,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 var callback = await ReceiveCallbackAsync(listener, state, cancellationToken).ConfigureAwait(false);
                 var token = await ExchangeCodeAsync(
                     clientId,
-                    clientSecret,
                     redirectUri,
                     callback,
                     codeVerifier,
@@ -194,7 +191,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         private async Task<GoogleDriveToken> ExchangeCodeAsync(
             string clientId,
-            string clientSecret,
             string redirectUri,
             string code,
             string codeVerifier,
@@ -203,7 +199,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             var fields = new Dictionary<string, string>
             {
                 ["client_id"] = clientId,
-                ["client_secret"] = clientSecret,
                 ["code"] = code,
                 ["code_verifier"] = codeVerifier,
                 ["grant_type"] = "authorization_code",
@@ -221,7 +216,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             var fields = new Dictionary<string, string>
             {
                 ["client_id"] = configuration.ClientId,
-                ["client_secret"] = configuration.ClientSecret,
                 ["refresh_token"] = refreshToken,
                 ["grant_type"] = "refresh_token"
             };

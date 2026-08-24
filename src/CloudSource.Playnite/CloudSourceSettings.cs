@@ -19,8 +19,6 @@ namespace CloudSource.Playnite
             "Games",
             CloudStorageProduct.DisplayName);
         private bool googleDriveEnabled;
-        private string googleDriveClientId;
-        private string googleDriveClientSecret;
         private string googleDriveAccountId;
         private string googleDriveAccountDisplayName;
         private string googleDriveFolderId = "root";
@@ -41,18 +39,6 @@ namespace CloudSource.Playnite
         {
             get => googleDriveEnabled;
             set => SetValue(ref googleDriveEnabled, value);
-        }
-
-        public string GoogleDriveClientId
-        {
-            get => googleDriveClientId;
-            set => SetValue(ref googleDriveClientId, value);
-        }
-
-        public string GoogleDriveClientSecret
-        {
-            get => googleDriveClientSecret;
-            set => SetValue(ref googleDriveClientSecret, value);
         }
 
         public string GoogleDriveAccountId
@@ -125,8 +111,6 @@ namespace CloudSource.Playnite
         {
             return new GoogleDriveProviderConfiguration(
                 GoogleDriveEnabled,
-                GoogleDriveClientId,
-                GoogleDriveClientSecret,
                 GoogleDriveAccountId,
                 GoogleDriveAccountDisplayName,
                 GoogleDriveFolderId,
@@ -287,20 +271,8 @@ namespace CloudSource.Playnite
                 errors.Add(rootError);
             }
 
-            var hasClientId = !string.IsNullOrWhiteSpace(Settings.GoogleDriveClientId);
-            var hasClientSecret = !string.IsNullOrWhiteSpace(Settings.GoogleDriveClientSecret);
-            if (hasClientId != hasClientSecret)
-            {
-                errors.Add("Google Drive client ID and client secret must be provided together.");
-            }
-
             if (Settings.GoogleDriveEnabled)
             {
-                if (!hasClientId)
-                {
-                    errors.Add("Google Drive client credentials are required before connecting.");
-                }
-
                 if (string.IsNullOrWhiteSpace(Settings.GoogleDriveAccountId) ||
                     string.IsNullOrWhiteSpace(Settings.GoogleDriveAccountDisplayName))
                 {
@@ -342,13 +314,6 @@ namespace CloudSource.Playnite
         {
             if (GoogleDriveBusy)
             {
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(Settings.GoogleDriveClientId) ||
-                string.IsNullOrWhiteSpace(Settings.GoogleDriveClientSecret))
-            {
-                plugin.ShowError("Enter the Google OAuth desktop client ID and client secret first.");
                 return;
             }
 

@@ -12,9 +12,11 @@ bundled client secret can be treated as confidential.
 
 ## Decision
 
-1. The player supplies a Google OAuth client of type **Desktop app**. Cloud
-   Source uses the authorization-code flow with PKCE, a cryptographically random
-   state value, an exact loopback callback path, and an ephemeral loopback port.
+1. The plugin ships its publisher-owned Google OAuth client ID. The client is a
+   **Desktop app**, which cannot keep a client secret confidential; the token
+   exchange therefore uses the public client ID and PKCE without shipping a
+   client secret. Players only sign in. Cloud Storage uses a cryptographically
+   random state value, an exact loopback callback path, and an ephemeral port.
 2. The requested scope is `drive.readonly`. This slice has no provider write or
    delete capability.
 3. OAuth access and refresh tokens are serialized separately from Playnite
@@ -31,9 +33,8 @@ bundled client secret can be treated as confidential.
 
 ## Consequences
 
-- A Google Cloud OAuth client must be configured before the provider can be
-  enabled.
+- Players do not need to create or configure a Google Cloud application.
 - Moving or renaming an archive does not change its imported game identity.
 - Local uninstall remains independent from cloud deletion.
-- Credentials, folder selection, and provider-specific errors remain inside the
+- Authorization, folder selection, and provider-specific errors remain inside the
   Google Drive adapter and settings surface.

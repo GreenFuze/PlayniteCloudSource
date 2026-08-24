@@ -9,7 +9,8 @@ namespace CloudSource.Playnite.Providers
         ZipArchive,
         SevenZipArchive,
         RarArchive,
-        InnoInstallerBundle
+        InnoInstallerBundle,
+        RomFile
     }
 
     public enum SourcePackageFileRole

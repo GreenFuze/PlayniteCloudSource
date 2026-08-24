@@ -45,6 +45,14 @@ namespace CloudSource.Playnite.Installation
         public string InvocationMode { get; set; }
         [DataMember(Order = 19, EmitDefaultValue = false)]
         public string UninstallTarget { get; set; }
+        [DataMember(Order = 20, EmitDefaultValue = false)]
+        public string RomTarget { get; set; }
+        [DataMember(Order = 21, EmitDefaultValue = false)]
+        public string PlatformSpecificationId { get; set; }
+        [DataMember(Order = 22, EmitDefaultValue = false)]
+        public string EmulatorId { get; set; }
+        [DataMember(Order = 23, EmitDefaultValue = false)]
+        public string EmulatorProfileId { get; set; }
     }
 
     internal sealed class InstallationRecord
@@ -59,5 +67,6 @@ namespace CloudSource.Playnite.Installation
         }
 
         public string LaunchPath => System.IO.Path.Combine(InstallDirectory, Manifest.LaunchTarget);
+        public string RomPath => System.IO.Path.Combine(InstallDirectory, Manifest.RomTarget);
     }
 }

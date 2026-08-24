@@ -79,14 +79,18 @@ namespace CloudSource.Playnite.Installation
 
             var path = Path.Combine(directory, FileName);
             if (!TryReadManifest(path, out var manifest) || manifest == null ||
-                (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) ||
-                !string.Equals(manifest.GameId, expectedGameId, StringComparison.Ordinal) ||
-                string.IsNullOrWhiteSpace(manifest.LaunchTarget))
+                (manifest.SchemaVersion < 1 || manifest.SchemaVersion > 3) ||
+                !string.Equals(manifest.GameId, expectedGameId, StringComparison.Ordinal))
             {
                 return false;
             }
 
-            var launchPath = Path.GetFullPath(Path.Combine(directory, manifest.LaunchTarget));
+            var contentTarget = string.Equals(manifest.InstallKind, "managed_rom", StringComparison.Ordinal)
+                ? manifest.RomTarget
+                : manifest.LaunchTarget;
+            if (string.IsNullOrWhiteSpace(contentTarget)) return false;
+
+            var launchPath = Path.GetFullPath(Path.Combine(directory, contentTarget));
             var directoryPrefix = Path.GetFullPath(directory)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (!launchPath.StartsWith(directoryPrefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(launchPath))

@@ -3,6 +3,7 @@ using CloudSource.Playnite.Providers.GoogleDrive;
 using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Storage;
 using CloudSource.Playnite.Installation;
+using CloudSource.Playnite.Emulation;
 using Playnite.SDK;
 using Playnite.SDK.Events;
 using Playnite.SDK.Models;
@@ -33,7 +34,9 @@ namespace CloudSource.Playnite
         private readonly InstallationManifestStore manifestStore;
         private readonly CloudLibraryReconciler libraryReconciler;
         private readonly ManagedArchiveInstaller archiveInstaller;
+        private readonly ManagedRomInstaller romInstaller;
         private readonly CloudGameActionManager gameActionManager;
+        private readonly EmulatorCompatibilityService emulatorCompatibility;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
 
@@ -85,6 +88,7 @@ namespace CloudSource.Playnite
                 new CloudLibraryReconciliationPlanner());
             metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier, manifestStore);
             gameActionManager = new CloudGameActionManager();
+            emulatorCompatibility = new EmulatorCompatibilityService(PlayniteApi.Database, PlayniteApi.Emulation);
             archiveInstaller = new ManagedArchiveInstaller(
                 GetManagedStorageLayout,
                 providerRegistry,
@@ -96,6 +100,7 @@ namespace CloudSource.Playnite
                 }),
                 new LaunchTargetResolver(titleNormalizer),
                 manifestStore);
+            romInstaller = new ManagedRomInstaller(GetManagedStorageLayout, providerRegistry, manifestStore);
 
             Properties = new LibraryPluginProperties
             {
@@ -192,12 +197,21 @@ namespace CloudSource.Playnite
             }
 
             var package = packageResolver.Resolve(args.Game);
-            if (!archiveInstaller.Supports(package.Kind))
+            var classification = archiveClassifier.Classify(package);
+            if (classification.ContentKind == CloudContentKind.NativePackage && !archiveInstaller.Supports(package.Kind))
             {
                 yield break;
             }
 
-            yield return new CloudInstallController(args.Game, PlayniteApi, archiveInstaller, gameActionManager, package);
+            yield return new CloudInstallController(
+                args.Game,
+                PlayniteApi,
+                archiveInstaller,
+                romInstaller,
+                gameActionManager,
+                archiveClassifier,
+                emulatorCompatibility,
+                package);
         }
 
         public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
@@ -323,7 +337,22 @@ namespace CloudSource.Playnite
                 candidate.PluginId == PluginId && candidate.IsInstalled))
             {
                 var installation = manifestStore.Find(game.GameId, game.InstallDirectory);
-                if (installation != null && gameActionManager.EnsureEditablePlayAction(game, installation))
+                if (installation == null) continue;
+                var changed = false;
+                if (string.Equals(installation.Manifest.InstallKind, "managed_rom", StringComparison.Ordinal))
+                {
+                    if (emulatorCompatibility.TryRestorePlan(installation.Manifest, out var emulatorPlan))
+                    {
+                        changed = emulatorCompatibility.EnsureGamePlatform(game, emulatorPlan);
+                        changed = gameActionManager.EnsureEditableEmulatorAction(game, installation, emulatorPlan) || changed;
+                    }
+                }
+                else
+                {
+                    changed = gameActionManager.EnsureEditablePlayAction(game, installation);
+                }
+
+                if (changed)
                 {
                     PlayniteApi.Database.Games.Update(game);
                     repaired++;

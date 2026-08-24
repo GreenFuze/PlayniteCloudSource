@@ -1,4 +1,5 @@
 using CloudSource.Playnite.GameImport;
+using CloudSource.Playnite.Emulation;
 using CloudSource.Playnite.Installation;
 using CloudSource.Playnite.Providers;
 using CloudSource.Playnite.Providers.GoogleDrive;
@@ -27,6 +28,8 @@ namespace CloudSource.Playnite.Tests
                 RejectsTraversal(root);
                 ExtractsSevenZipAndRar(root);
                 RegistersEverySupportedArchiveKind();
+                ClassifiesEmulatedPlatformPackages();
+                InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
                 InstallsStandaloneInnoBundle(root);
@@ -63,11 +66,84 @@ namespace CloudSource.Playnite.Tests
 
             foreach (SourcePackageKind kind in Enum.GetValues(typeof(SourcePackageKind)))
             {
-                if (kind == SourcePackageKind.InnoInstallerBundle) continue;
+                if (kind == SourcePackageKind.InnoInstallerBundle || kind == SourcePackageKind.RomFile) continue;
                 Assert(registry.Supports(kind), $"Archive kind '{kind}' has no registered installer.");
             }
 
             Assert(!registry.Supports(SourcePackageKind.InnoInstallerBundle), "Native installer bundles must not use an archive extractor.");
+            Assert(!registry.Supports(SourcePackageKind.RomFile), "ROM files must not use an archive extractor.");
+        }
+
+        private static void ClassifiesEmulatedPlatformPackages()
+        {
+            var classifier = new CloudArchiveClassifier();
+            var arcade = classifier.Classify("My Drive/Games/Platforms/MAME/pacman.zip");
+            Assert(arcade.ContentKind == CloudContentKind.Rom, "MAME ZIP was not classified as ROM content.");
+            Assert(arcade.PlatformName == "Arcade", "MAME folder did not resolve to Playnite's Arcade platform.");
+            Assert(arcade.PlatformSpecificationId == "arcade", "Arcade platform specification ID is incorrect.");
+            var directMame = classifier.Classify("My Drive/Games/MAME/galaga.zip");
+            Assert(directMame.ContentKind == CloudContentKind.Rom && directMame.PlatformSpecificationId == "arcade", "Direct MGA-style MAME path was not classified as Arcade ROM content.");
+            var inferredGba = classifier.Classify("My Drive/Games/Metroid Fusion.gba");
+            Assert(inferredGba.ContentKind == CloudContentKind.Rom && inferredGba.PlatformSpecificationId == "nintendo_gameboyadvance", "GBA platform was not inferred from its ROM extension.");
+
+            var windows = classifier.Classify("My Drive/Games/Platforms/Windows/Hangman.zip");
+            Assert(windows.ContentKind == CloudContentKind.NativePackage, "Windows package was incorrectly classified as ROM content.");
+            Assert(windows.PlatformSpecificationId == "pc_windows", "Windows platform specification ID is incorrect.");
+
+            var atari = classifier.Classify("My Drive/Games/Platforms/Atari 2600/game.a26");
+            Assert(atari.ContentKind == CloudContentKind.Rom, "An ordinary path-classified ROM was not recognized.");
+            Assert(atari.PlatformName == "Atari 2600", "Unknown platform folder name was not preserved for Playnite lookup.");
+        }
+
+        private static void InstallsRomWithoutExtraction(string root)
+        {
+            var romBytes = new byte[] { 0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4 };
+            var package = new SourcePackage(
+                "test-provider",
+                "account",
+                "arcade-object",
+                "revision",
+                "Games/Platforms/Arcade/pacman.zip",
+                "pacman.zip",
+                romBytes.Length,
+                null,
+                SourcePackageKind.ZipArchive);
+            var managedRoot = Path.Combine(root, "rom-managed");
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            var manifestStore = new InstallationManifestStore(() => layout);
+            var installer = new ManagedRomInstaller(
+                () => layout,
+                new ProviderRegistry(new ICloudSourceProvider[] { new MemoryProvider(romBytes) }),
+                manifestStore);
+            var emulatorId = Guid.NewGuid();
+            var plan = new EmulatorInstallPlan(
+                "Arcade",
+                "arcade",
+                emulatorId,
+                "MAME",
+                "mame-default",
+                "Default",
+                "-rompath \"{ImageDir}\"");
+            var updates = new List<InstallationProgressUpdate>();
+
+            var record = installer.Install(package, "Pac-Man", plan, updates.Add, CancellationToken.None);
+
+            var installedRom = Path.Combine(record.InstallDirectory, "pacman.zip");
+            Assert(File.ReadAllBytes(installedRom).SequenceEqual(romBytes), "ROM archive was changed or extracted during installation.");
+            Assert(record.Manifest.InstallKind == "managed_rom", "ROM installation manifest has the wrong kind.");
+            Assert(record.Manifest.RomTarget == "pacman.zip", "ROM target was not recorded.");
+            Assert(manifestStore.Find(package.StableId) != null, "ROM installation manifest could not be reopened.");
+            Assert(!Directory.EnumerateFileSystemEntries(layout.StagingPath).Any(), "ROM installation left staging files behind.");
+            Assert(updates.All(update => update.Stage != InstallationProgressStage.Extracting), "ROM installation reported an extraction phase.");
+
+            var game = new Game { Name = "Pac-Man" };
+            var manager = new CloudGameActionManager();
+            Assert(manager.EnsureEditableEmulatorAction(game, record, plan), "ROM emulator action was not created.");
+            Assert(game.Roms.Single().Path == Path.Combine(ExpandableVariables.InstallationDirectory, "pacman.zip"), "Playnite ROM path is incorrect.");
+            var action = game.GameActions.Single();
+            Assert(action.Type == GameActionType.Emulator, "ROM action does not use Playnite's emulator action type.");
+            Assert(action.EmulatorId == emulatorId && action.EmulatorProfileId == "mame-default", "ROM action does not target the selected emulator profile.");
+            Assert(action.AdditionalArguments == "-rompath \"{ImageDir}\"", "MAME ROM directory argument is missing.");
         }
 
         private static void ReportsInstallationPhases(string root)

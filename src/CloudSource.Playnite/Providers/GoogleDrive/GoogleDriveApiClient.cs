@@ -14,6 +14,18 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
     {
         private const string ApiBaseUri = "https://www.googleapis.com/drive/v3/";
         private const string FolderMimeType = "application/vnd.google-apps.folder";
+        private static readonly HashSet<string> RomExtensions = new HashSet<string>(
+            new[]
+            {
+                ".32x", ".a26", ".a52", ".a78", ".col", ".fds", ".gb", ".gba", ".gbc", ".gen",
+                ".gg", ".int", ".j64", ".jag", ".lnx", ".md", ".n64", ".nds", ".nes", ".ngc",
+                ".ngp", ".pce", ".rom", ".sfc", ".smc", ".smd", ".sms", ".unf", ".unif", ".v64",
+                ".vec", ".ws", ".wsc", ".z64"
+            },
+            StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> IntrinsicPlatformRomExtensions = new HashSet<string>(
+            new[] { ".32x", ".fds", ".gb", ".gba", ".gbc", ".gen", ".gg", ".md", ".n64", ".nes", ".sfc", ".smc", ".smd", ".sms", ".v64", ".z64" },
+            StringComparer.OrdinalIgnoreCase);
         private static readonly Regex ObjectIdPattern = new Regex(
             "^[A-Za-z0-9_-]+$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -234,8 +246,8 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateListedFile(file);
-                if (!TryGetPackageKind(file.Name, out var kind)) continue;
                 var logicalPath = CombineLogicalPath(displayPath, file.Name);
+                if (!TryGetPackageKind(file.Name, logicalPath, out var kind)) continue;
                 packages.Add(CreateSingleFilePackage(accountId, file, logicalPath, kind));
             }
 
@@ -500,7 +512,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             return parent.Trim().TrimEnd('/') + "/" + safeName;
         }
 
-        private static bool TryGetPackageKind(string name, out SourcePackageKind kind)
+        private static bool TryGetPackageKind(string name, string logicalPath, out SourcePackageKind kind)
         {
             var extension = Path.GetExtension(name);
             if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
@@ -521,7 +533,26 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 return true;
             }
 
+            if (RomExtensions.Contains(extension) &&
+                (IntrinsicPlatformRomExtensions.Contains(extension) || IsPlatformPath(logicalPath)))
+            {
+                kind = SourcePackageKind.RomFile;
+                return true;
+            }
+
             kind = default(SourcePackageKind);
+            return false;
+        }
+
+        private static bool IsPlatformPath(string logicalPath)
+        {
+            var segments = (logicalPath ?? string.Empty)
+                .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            for (var index = 0; index + 1 < segments.Length; index++)
+            {
+                if (string.Equals(segments[index], "Platforms", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+
             return false;
         }
 

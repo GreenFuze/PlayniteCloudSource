@@ -1,3 +1,5 @@
+using CloudSource.Playnite.Emulation;
+using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Providers;
 using Playnite.SDK;
 using Playnite.SDK.Models;
@@ -14,20 +16,29 @@ namespace CloudSource.Playnite.Installation
         private static readonly ILogger Logger = LogManager.GetLogger();
         private readonly IPlayniteAPI playniteApi;
         private readonly ManagedArchiveInstaller installer;
+        private readonly ManagedRomInstaller romInstaller;
         private readonly CloudGameActionManager gameActionManager;
+        private readonly CloudArchiveClassifier classifier;
+        private readonly EmulatorCompatibilityService emulatorCompatibility;
         private readonly SourcePackage package;
 
         public CloudInstallController(
             Game game,
             IPlayniteAPI playniteApi,
             ManagedArchiveInstaller installer,
+            ManagedRomInstaller romInstaller,
             CloudGameActionManager gameActionManager,
+            CloudArchiveClassifier classifier,
+            EmulatorCompatibilityService emulatorCompatibility,
             SourcePackage package)
             : base(game)
         {
             this.playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
             this.installer = installer ?? throw new ArgumentNullException(nameof(installer));
+            this.romInstaller = romInstaller ?? throw new ArgumentNullException(nameof(romInstaller));
             this.gameActionManager = gameActionManager ?? throw new ArgumentNullException(nameof(gameActionManager));
+            this.classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
+            this.emulatorCompatibility = emulatorCompatibility ?? throw new ArgumentNullException(nameof(emulatorCompatibility));
             this.package = package ?? throw new ArgumentNullException(nameof(package));
             Name = "Install from Cloud Storage";
         }
@@ -36,17 +47,36 @@ namespace CloudSource.Playnite.Installation
         {
             try
             {
+                var classification = classifier.Classify(package);
+                EmulatorInstallPlan emulatorPlan = null;
+                if (classification.ContentKind == CloudContentKind.Rom)
+                {
+                    emulatorPlan = SelectEmulatorPlan(classification);
+                    if (emulatorPlan == null)
+                    {
+                        InvokeOnInstallationCancelled(new GameInstallationCancelledEventArgs());
+                        return;
+                    }
+                }
+
                 InstallationRecord record = null;
                 var result = playniteApi.Dialogs.ActivateGlobalProgress(
                     progressArgs =>
                     {
-                        record = installer.Install(
-                            package,
-                            Game.Name,
-                            request => ConfirmInstaller(playniteApi, progressArgs, request),
-                            request => SelectLaunchTarget(playniteApi, progressArgs, request),
-                            update => UpdateProgress(progressArgs, update),
-                            progressArgs.CancelToken);
+                        record = classification.ContentKind == CloudContentKind.Rom
+                            ? romInstaller.Install(
+                                package,
+                                Game.Name,
+                                emulatorPlan,
+                                update => UpdateProgress(progressArgs, update),
+                                progressArgs.CancelToken)
+                            : installer.Install(
+                                package,
+                                Game.Name,
+                                request => ConfirmInstaller(playniteApi, progressArgs, request),
+                                request => SelectLaunchTarget(playniteApi, progressArgs, request),
+                                update => UpdateProgress(progressArgs, update),
+                                progressArgs.CancelToken);
                         return Task.CompletedTask;
                     },
                     new GlobalProgressOptions($"Installing {Game.Name}", true)
@@ -75,10 +105,18 @@ namespace CloudSource.Playnite.Installation
 
                 var databaseGame = playniteApi.Database.Games.Get(Game.Id) ??
                     throw new InvalidOperationException("The installed game is no longer present in the Playnite database.");
-                if (gameActionManager.EnsureEditablePlayAction(databaseGame, record))
+                var gameChanged = false;
+                if (classification.ContentKind == CloudContentKind.Rom)
                 {
-                    playniteApi.Database.Games.Update(databaseGame);
+                    emulatorCompatibility.EnsureGamePlatform(databaseGame, emulatorPlan);
+                    gameChanged = gameActionManager.EnsureEditableEmulatorAction(databaseGame, record, emulatorPlan);
                 }
+                else
+                {
+                    gameChanged = gameActionManager.EnsureEditablePlayAction(databaseGame, record);
+                }
+                if (gameChanged || classification.ContentKind == CloudContentKind.Rom)
+                    playniteApi.Database.Games.Update(databaseGame);
 
                 InvokeOnInstalled(new GameInstalledEventArgs(new GameInstallationData
                 {
@@ -94,6 +132,44 @@ namespace CloudSource.Playnite.Installation
                     NotificationType.Error);
                 InvokeOnInstallationCancelled(new GameInstallationCancelledEventArgs());
             }
+        }
+
+        private EmulatorInstallPlan SelectEmulatorPlan(CloudGameClassification classification)
+        {
+            var candidates = emulatorCompatibility.FindCompatibleProfiles(Game, classification, package.DisplayName);
+            if (candidates.Count == 0)
+            {
+                playniteApi.Dialogs.ShowMessage(
+                    $"{Game.Name} requires an emulator for {classification.PlatformName}, but Playnite has no configured " +
+                    $"profile for .{System.IO.Path.GetExtension(package.DisplayName).TrimStart('.')} files.\n\n" +
+                    "Configure an emulator in Playnite's Emulators settings, then try Install again. Nothing was downloaded.",
+                    "Emulator required",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+                return null;
+            }
+
+            if (candidates.Count == 1) return candidates[0];
+            var options = candidates.Select(candidate => new GenericItemOption
+            {
+                Name = candidate.DisplayName,
+                Description = $"{candidate.PlatformName} emulator profile"
+            }).ToList();
+            List<GenericItemOption> Search(string query)
+            {
+                if (string.IsNullOrWhiteSpace(query)) return options;
+                return options.Where(option =>
+                    option.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            }
+
+            var selected = playniteApi.Dialogs.ChooseItemWithSearch(
+                options,
+                Search,
+                caption: $"Choose emulator for {Game.Name}");
+            if (selected == null) return null;
+            var selectedIndex = options.IndexOf(selected);
+            if (selectedIndex < 0) throw new InvalidOperationException("Playnite returned an unknown emulator selection.");
+            return candidates[selectedIndex];
         }
 
         internal static void UpdateProgress(

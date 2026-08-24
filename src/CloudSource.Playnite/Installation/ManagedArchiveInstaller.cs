@@ -65,6 +65,7 @@ namespace CloudSource.Playnite.Installation
             SourcePackage package,
             string gameName,
             Func<InstallerConfirmationRequest, bool> confirmInstaller,
+            Func<LaunchTargetSelectionRequest, string> selectLaunchTarget,
             Action<InstallationProgressUpdate> reportProgress,
             CancellationToken cancellationToken)
         {
@@ -76,6 +77,17 @@ namespace CloudSource.Playnite.Installation
 
             var layout = layoutFactory();
             layout.EnsureCreated();
+            var recovered = TryFinalizeExistingNativeInstallation(
+                package,
+                gameName,
+                layout.GamesPath,
+                selectLaunchTarget,
+                reportProgress);
+            if (recovered != null)
+            {
+                return recovered;
+            }
+
             var stageRoot = Path.Combine(layout.StagingPath, "install-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(stageRoot);
             try
@@ -96,6 +108,7 @@ namespace CloudSource.Playnite.Installation
                         prepared,
                         classification,
                         confirmInstaller,
+                        selectLaunchTarget,
                         reportProgress,
                         cancellationToken);
                 }
@@ -106,7 +119,7 @@ namespace CloudSource.Playnite.Installation
                 }
 
                 reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 0, 1));
-                var launchTarget = launchTargetResolver.Resolve(prepared.PayloadRoot, gameName);
+                var launchTarget = launchTargetResolver.Resolve(prepared.PayloadRoot, gameName, selectLaunchTarget);
                 var manifest = new InstallManifest
                 {
                     GameId = package.StableId,
@@ -196,6 +209,7 @@ namespace CloudSource.Playnite.Installation
             PreparedPayload prepared,
             PreparedPayloadClassification classification,
             Func<InstallerConfirmationRequest, bool> confirmInstaller,
+            Func<LaunchTargetSelectionRequest, string> selectLaunchTarget,
             Action<InstallationProgressUpdate> reportProgress,
             CancellationToken cancellationToken)
         {
@@ -205,12 +219,78 @@ namespace CloudSource.Playnite.Installation
                 gameName,
                 destination,
                 confirmInstaller,
+                selectLaunchTarget,
                 reportProgress,
                 cancellationToken);
             reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 0, 1));
+            var manifest = CreateInnoManifest(
+                package,
+                gameName,
+                destination,
+                native,
+                prepared.PrimaryDownload.Sha256,
+                prepared.TotalDownloadedBytes,
+                Path.GetFileName(classification.InstallerPath),
+                classification.SignerSubject,
+                "confirmed_interactive");
+            manifestStore.Write(destination, manifest);
+            Logger.Info($"Cloud Storage Inno installation completed for '{gameName}' at '{destination}'.");
+            reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 1, 1));
+            return new InstallationRecord(destination, manifest);
+        }
+
+        private InstallationRecord TryFinalizeExistingNativeInstallation(
+            SourcePackage package,
+            string gameName,
+            string gamesPath,
+            Func<LaunchTargetSelectionRequest, string> selectLaunchTarget,
+            Action<InstallationProgressUpdate> reportProgress)
+        {
+            var destination = GetPrimaryDestination(gamesPath, gameName);
+            if (!Directory.Exists(destination) ||
+                File.Exists(Path.Combine(destination, InstallationManifestStore.FileName)) ||
+                !nativeInnoInstaller.CanFinalizeExistingInstallation(destination))
+            {
+                return null;
+            }
+
+            Logger.Info($"Cloud Storage found a completed native installation for '{gameName}' at '{destination}' and will finalize it without rerunning setup.");
+            var native = nativeInnoInstaller.FinalizeExistingInstallation(
+                gameName,
+                destination,
+                selectLaunchTarget,
+                reportProgress);
+            reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 0, 1));
+            var manifest = CreateInnoManifest(
+                package,
+                gameName,
+                destination,
+                native,
+                null,
+                package.SizeBytes,
+                package.DisplayName,
+                null,
+                "recovered_existing_post_install");
+            manifestStore.Write(destination, manifest);
+            Logger.Info($"Cloud Storage finalized the existing native installation for '{gameName}'.");
+            reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 1, 1));
+            return new InstallationRecord(destination, manifest);
+        }
+
+        private static InstallManifest CreateInnoManifest(
+            SourcePackage package,
+            string gameName,
+            string destination,
+            NativeInnoInstallResult native,
+            string archiveSha256,
+            long archiveSizeBytes,
+            string installerFileName,
+            string signerSubject,
+            string invocationMode)
+        {
             var installedSize = Directory.EnumerateFiles(destination, "*", SearchOption.AllDirectories)
                 .Sum(path => new FileInfo(path).Length);
-            var manifest = new InstallManifest
+            return new InstallManifest
             {
                 GameId = package.StableId,
                 GameName = gameName,
@@ -219,22 +299,18 @@ namespace CloudSource.Playnite.Installation
                 ObjectId = package.ObjectId,
                 Revision = package.Revision,
                 LogicalPath = package.LogicalPath,
-                ArchiveSha256 = prepared.PrimaryDownload.Sha256,
-                ArchiveSizeBytes = prepared.TotalDownloadedBytes,
+                ArchiveSha256 = archiveSha256,
+                ArchiveSizeBytes = archiveSizeBytes,
                 InstalledSizeBytes = installedSize,
                 LaunchTarget = native.LaunchTarget,
                 InstallKind = "inno",
                 InstallerFamily = "inno_setup",
-                InstallerFileName = Path.GetFileName(classification.InstallerPath),
-                SignerSubject = classification.SignerSubject,
-                InvocationMode = "confirmed_interactive",
+                InstallerFileName = installerFileName,
+                SignerSubject = signerSubject,
+                InvocationMode = invocationMode,
                 UninstallTarget = native.UninstallTarget,
                 InstalledAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture)
             };
-            manifestStore.Write(destination, manifest);
-            Logger.Info($"Cloud Storage Inno installation completed for '{gameName}' at '{destination}'.");
-            reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 1, 1));
-            return new InstallationRecord(destination, manifest);
         }
 
         private static string GetArchiveExtension(SourcePackageKind kind)
@@ -296,6 +372,7 @@ namespace CloudSource.Playnite.Installation
             string preferredDirectory,
             string gameName,
             Func<InstallerConfirmationRequest, bool> confirmInstaller,
+            Func<LaunchTargetSelectionRequest, string> selectLaunchTarget,
             Action<InstallationProgressUpdate> reportProgress,
             CancellationToken cancellationToken)
         {
@@ -315,6 +392,7 @@ namespace CloudSource.Playnite.Installation
                 gameName,
                 destination,
                 confirmInstaller,
+                selectLaunchTarget,
                 reportProgress,
                 cancellationToken);
             reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 0, 1));
@@ -426,7 +504,7 @@ namespace CloudSource.Playnite.Installation
         private static string SelectDestination(string gamesPath, string gameName, string stableId)
         {
             var safeName = SanitizeDirectoryName(gameName);
-            var destination = Path.Combine(gamesPath, safeName);
+            var destination = GetPrimaryDestination(gamesPath, gameName);
             if (!Directory.Exists(destination) && !File.Exists(destination)) return destination;
 
             using (var sha = SHA256.Create())
@@ -442,6 +520,11 @@ namespace CloudSource.Playnite.Installation
             }
 
             return destination;
+        }
+
+        private static string GetPrimaryDestination(string gamesPath, string gameName)
+        {
+            return Path.Combine(gamesPath, SanitizeDirectoryName(gameName));
         }
 
         private static string SanitizeDirectoryName(string gameName)

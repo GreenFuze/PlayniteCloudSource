@@ -243,6 +243,7 @@ namespace CloudSource.Playnite
                             game.InstallDirectory,
                             game.Name,
                             request => CloudInstallController.ConfirmInstaller(PlayniteApi, progressArgs, request),
+                            request => CloudInstallController.SelectLaunchTarget(PlayniteApi, progressArgs, request),
                             update => CloudInstallController.UpdateProgress(progressArgs, update),
                             progressArgs.CancelToken);
                         return Task.CompletedTask;

@@ -3,6 +3,8 @@ using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace CloudSource.Playnite.Installation
@@ -35,6 +37,7 @@ namespace CloudSource.Playnite.Installation
                             package,
                             Game.Name,
                             request => ConfirmInstaller(playniteApi, progressArgs, request),
+                            request => SelectLaunchTarget(playniteApi, progressArgs, request),
                             update => UpdateProgress(progressArgs, update),
                             progressArgs.CancelToken);
                         return Task.CompletedTask;
@@ -174,6 +177,36 @@ namespace CloudSource.Playnite.Installation
                     "Run game installer",
                     System.Windows.MessageBoxButton.YesNo,
                     System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes);
+        }
+
+        internal static string SelectLaunchTarget(
+            IPlayniteAPI playniteApi,
+            GlobalProgressActionArgs progressArgs,
+            LaunchTargetSelectionRequest request)
+        {
+            return progressArgs.MainDispatcher.Invoke(() =>
+            {
+                var options = request.Candidates
+                    .Select(candidate => new GenericItemOption
+                    {
+                        Name = candidate.FileName,
+                        Description = candidate.RelativePath
+                    })
+                    .ToList();
+                List<GenericItemOption> Search(string query)
+                {
+                    if (string.IsNullOrWhiteSpace(query)) return options;
+                    return options.Where(option =>
+                        option.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        option.Description.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                }
+
+                var selected = playniteApi.Dialogs.ChooseItemWithSearch(
+                    options,
+                    Search,
+                    caption: $"Choose launcher for {request.GameName}");
+                return selected?.Description;
+            });
         }
 
         private static string FormatBytes(long bytes)

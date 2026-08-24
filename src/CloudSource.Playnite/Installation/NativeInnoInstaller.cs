@@ -85,6 +85,7 @@ namespace CloudSource.Playnite.Installation
             string gameName,
             string destination,
             Func<InstallerConfirmationRequest, bool> confirm,
+            Func<LaunchTargetSelectionRequest, string> selectLaunchTarget,
             Action<InstallationProgressUpdate> reportProgress,
             CancellationToken cancellationToken)
         {
@@ -111,6 +112,37 @@ namespace CloudSource.Playnite.Installation
                 throw new InvalidOperationException($"Installer exited with code {exitCode}.");
             }
 
+            return FinalizeExistingInstallation(
+                gameName,
+                destination,
+                selectLaunchTarget,
+                reportProgress,
+                exitCode);
+        }
+
+        public bool CanFinalizeExistingInstallation(string destination)
+        {
+            try
+            {
+                return Directory.Exists(destination) &&
+                    !string.IsNullOrWhiteSpace(ResolveUninstaller(destination)) &&
+                    launchTargetResolver.Discover(destination, Path.GetFileName(destination)).Count > 0;
+            }
+            catch (Exception exception) when (
+                exception is IOException ||
+                exception is UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        public NativeInnoInstallResult FinalizeExistingInstallation(
+            string gameName,
+            string destination,
+            Func<LaunchTargetSelectionRequest, string> selectLaunchTarget,
+            Action<InstallationProgressUpdate> reportProgress,
+            int exitCode = 0)
+        {
             reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.ValidatingInstallation, 0, 1));
             if (!Directory.Exists(destination))
             {
@@ -118,7 +150,7 @@ namespace CloudSource.Playnite.Installation
             }
 
             var uninstallTarget = ResolveUninstaller(destination);
-            var launchTarget = launchTargetResolver.Resolve(destination, gameName);
+            var launchTarget = launchTargetResolver.Resolve(destination, gameName, selectLaunchTarget);
             reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.ValidatingInstallation, 1, 1));
             return new NativeInnoInstallResult(launchTarget, uninstallTarget, exitCode);
         }

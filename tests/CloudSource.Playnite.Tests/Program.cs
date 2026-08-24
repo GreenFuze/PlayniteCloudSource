@@ -21,6 +21,7 @@ namespace CloudSource.Playnite.Tests
             try
             {
                 ExtractsWrapperAndSelectsGameExecutable(root);
+                RequiresExplicitSelectionForAmbiguousExecutable(root);
                 RejectsTraversal(root);
                 ExtractsSevenZipAndRar(root);
                 RegistersEverySupportedArchiveKind();
@@ -28,6 +29,7 @@ namespace CloudSource.Playnite.Tests
                 InstallsArchivedInnoPackage(root);
                 InstallsStandaloneInnoBundle(root);
                 CompletesLegacyExtractedInstaller(root);
+                RecoversCompletedNativeInstallWithoutRerunningSetup(root);
                 ExposesHttpContentLength();
                 RejectsRarLinks(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
@@ -94,7 +96,7 @@ namespace CloudSource.Playnite.Tests
                 manifestStore);
             var updates = new List<InstallationProgressUpdate>();
 
-            var record = installer.Install(package, "Progress Game", _ => true, updates.Add, CancellationToken.None);
+            var record = installer.Install(package, "Progress Game", _ => true, _ => null, updates.Add, CancellationToken.None);
 
             Assert(Directory.Exists(record.InstallDirectory), "Progress test game was not installed.");
             Assert(
@@ -151,6 +153,7 @@ namespace CloudSource.Playnite.Tests
                 package,
                 "Archive Game",
                 _ => { confirmations++; return true; },
+                _ => null,
                 _ => { },
                 CancellationToken.None);
 
@@ -196,6 +199,7 @@ namespace CloudSource.Playnite.Tests
                 package,
                 "Standalone Game",
                 _ => true,
+                _ => null,
                 _ => { },
                 CancellationToken.None);
 
@@ -247,6 +251,7 @@ namespace CloudSource.Playnite.Tests
                 legacyDirectory,
                 "Legacy Game",
                 _ => true,
+                _ => null,
                 _ => { },
                 CancellationToken.None);
 
@@ -340,6 +345,97 @@ namespace CloudSource.Playnite.Tests
             Assert(Path.GetFileName(extraction.PayloadRoot) == "Plasma Pong", "Single wrapper directory was not collapsed.");
             var launch = new LaunchTargetResolver(new GameTitleNormalizer()).Resolve(extraction.PayloadRoot, "Plasma Pong");
             Assert(launch == "Plasma Pong.exe", "Main executable was not selected over the uninstaller.");
+        }
+
+        private static void RequiresExplicitSelectionForAmbiguousExecutable(string root)
+        {
+            var gameRoot = Path.Combine(root, "ambiguous-launch-target");
+            Directory.CreateDirectory(gameRoot);
+            File.WriteAllText(Path.Combine(gameRoot, "BUILD.EXE"), "editor");
+            File.WriteAllText(Path.Combine(gameRoot, "DUKE3D.EXE"), "game");
+            var resolver = new LaunchTargetResolver(new GameTitleNormalizer());
+            LaunchTargetSelectionRequest request = null;
+
+            var selected = resolver.Resolve(
+                gameRoot,
+                "Duke Nukem 3D",
+                value =>
+                {
+                    request = value;
+                    return "DUKE3D.EXE";
+                });
+
+            Assert(selected == "DUKE3D.EXE", "Explicitly selected executable was not returned.");
+            Assert(request != null && request.Candidates.Count == 2, "Executable picker did not receive every safe candidate.");
+
+            try
+            {
+                resolver.Resolve(gameRoot, "Duke Nukem 3D", _ => "outside.exe");
+                throw new InvalidOperationException("An executable outside the validated candidate set was accepted.");
+            }
+            catch (InvalidDataException)
+            {
+            }
+
+            try
+            {
+                resolver.Resolve(gameRoot, "Duke Nukem 3D", _ => null);
+                throw new InvalidOperationException("Canceling executable selection did not cancel finalization.");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private static void RecoversCompletedNativeInstallWithoutRerunningSetup(string root)
+        {
+            var managedRoot = Path.Combine(root, "native-recovery-managed");
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            layout.EnsureCreated();
+            var destination = Path.Combine(layout.GamesPath, "Duke Nukem 3D");
+            Directory.CreateDirectory(destination);
+            File.WriteAllText(Path.Combine(destination, "BUILD.EXE"), "editor");
+            File.WriteAllText(Path.Combine(destination, "DUKE3D.EXE"), "game");
+            File.WriteAllText(Path.Combine(destination, "Launch Duke Nukem 3D.lnk"), "shortcut");
+            File.WriteAllText(Path.Combine(destination, "unins000.exe"), "uninstaller");
+
+            var provider = new MemoryProvider(new byte[] { 1, 2, 3 });
+            var runner = new FakeNativeInstallerRunner("unused.exe");
+            var installer = CreateInstaller(managedRoot, provider, runner);
+            var package = new SourcePackage(
+                "test-provider",
+                "account",
+                "duke-object",
+                "revision",
+                "Installers/setup_duke_nukem_3d.exe",
+                "setup_duke_nukem_3d.exe",
+                3,
+                null,
+                SourcePackageKind.InnoInstallerBundle);
+            var selections = 0;
+
+            var record = installer.Install(
+                package,
+                "Duke Nukem 3D",
+                _ => throw new InvalidOperationException("Recovery must not ask to rerun setup."),
+                request =>
+                {
+                    selections++;
+                    Assert(request.InstallDirectory == destination, "Recovery picker showed the wrong managed directory.");
+                    Assert(request.Candidates.Any(candidate => candidate.RelativePath == "Launch Duke Nukem 3D.lnk"),
+                        "Recovery picker omitted the installed game shortcut.");
+                    return "Launch Duke Nukem 3D.lnk";
+                },
+                _ => { },
+                CancellationToken.None);
+
+            Assert(selections == 1, "Recovery did not request an explicit executable selection.");
+            Assert(provider.OpenCalls == 0, "Recovery downloaded the installer package again.");
+            Assert(runner.InstallCalls == 0, "Recovery reran the native installer.");
+            Assert(record.InstallDirectory == destination, "Recovery changed the completed installation directory.");
+            Assert(record.Manifest.LaunchTarget == "Launch Duke Nukem 3D.lnk", "Recovery persisted the wrong launcher.");
+            Assert(record.Manifest.InvocationMode == "recovered_existing_post_install", "Recovery origin was not recorded.");
+            Assert(File.Exists(Path.Combine(destination, InstallationManifestStore.FileName)), "Recovery did not write the managed manifest.");
         }
 
         private static void RejectsTraversal(string root)
@@ -488,6 +584,8 @@ namespace CloudSource.Playnite.Tests
         {
             private readonly byte[] packageBytes;
 
+            public int OpenCalls { get; private set; }
+
             public string Id => "test-provider";
             public string Name => "Memory";
             public bool IsConfigured => true;
@@ -509,6 +607,7 @@ namespace CloudSource.Playnite.Tests
                 CancellationToken cancellationToken)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                OpenCalls++;
                 return System.Threading.Tasks.Task.FromResult<Stream>(new MemoryStream(packageBytes, writable: false));
             }
 

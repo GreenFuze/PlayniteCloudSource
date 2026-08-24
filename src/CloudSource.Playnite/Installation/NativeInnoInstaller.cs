@@ -159,7 +159,10 @@ namespace CloudSource.Playnite.Installation
         {
             var target = ResolveMember(installDirectory, uninstallTarget);
             if (!File.Exists(target)) throw new FileNotFoundException("The recorded Inno uninstaller is missing.", target);
-            var exitCode = processRunner.Run(target, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART", installDirectory);
+            // Keep the vendor uninstaller visible. Some games ask whether saves or
+            // configuration should be retained, and unattended defaults must not
+            // make that decision for the user.
+            var exitCode = processRunner.Run(target, "/NORESTART", installDirectory);
             if (exitCode != 0) throw new InvalidOperationException($"Uninstaller exited with code {exitCode}.");
         }
 

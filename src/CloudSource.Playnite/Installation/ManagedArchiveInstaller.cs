@@ -324,7 +324,7 @@ namespace CloudSource.Playnite.Installation
             }
         }
 
-        public void Uninstall(string gameId, string preferredDirectory)
+        public ManagedUninstallResult Uninstall(string gameId, string preferredDirectory)
         {
             var record = manifestStore.Find(gameId, preferredDirectory);
             if (record == null)
@@ -344,10 +344,13 @@ namespace CloudSource.Playnite.Installation
                 nativeInnoInstaller.Uninstall(record.InstallDirectory, record.Manifest.UninstallTarget);
                 manifestStore.RemoveManifest(record.InstallDirectory);
                 Logger.Info($"Cloud Storage Inno uninstall completed for '{record.Manifest.GameName}'.");
-                return;
+                return new ManagedUninstallResult(
+                    record.InstallDirectory,
+                    Directory.Exists(record.InstallDirectory));
             }
 
             Directory.Delete(record.InstallDirectory, true);
+            return new ManagedUninstallResult(record.InstallDirectory, false);
         }
 
         public bool CanCompleteExtractedInstaller(string gameId, string preferredDirectory)
@@ -561,6 +564,18 @@ namespace CloudSource.Playnite.Installation
                 TotalDownloadedBytes = totalDownloadedBytes;
                 PrimaryDownload = primaryDownload ?? throw new ArgumentNullException(nameof(primaryDownload));
             }
+        }
+    }
+
+    internal sealed class ManagedUninstallResult
+    {
+        public string InstallDirectory { get; }
+        public bool RemainingFilesPreserved { get; }
+
+        public ManagedUninstallResult(string installDirectory, bool remainingFilesPreserved)
+        {
+            InstallDirectory = installDirectory ?? throw new ArgumentNullException(nameof(installDirectory));
+            RemainingFilesPreserved = remainingFilesPreserved;
         }
     }
 }

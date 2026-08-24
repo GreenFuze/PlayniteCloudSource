@@ -33,6 +33,7 @@ namespace CloudSource.Playnite
         private readonly InstallationManifestStore manifestStore;
         private readonly CloudLibraryReconciler libraryReconciler;
         private readonly ManagedArchiveInstaller archiveInstaller;
+        private readonly CloudGameActionManager gameActionManager;
 
         public static readonly Guid PluginId = Guid.Parse("a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2");
 
@@ -83,6 +84,7 @@ namespace CloudSource.Playnite
                 manifestStore,
                 new CloudLibraryReconciliationPlanner());
             metadataFactory = new CloudGameMetadataFactory(titleNormalizer, archiveClassifier, manifestStore);
+            gameActionManager = new CloudGameActionManager();
             archiveInstaller = new ManagedArchiveInstaller(
                 GetManagedStorageLayout,
                 providerRegistry,
@@ -195,7 +197,7 @@ namespace CloudSource.Playnite
                 yield break;
             }
 
-            yield return new CloudInstallController(args.Game, PlayniteApi, archiveInstaller, package);
+            yield return new CloudInstallController(args.Game, PlayniteApi, archiveInstaller, gameActionManager, package);
         }
 
         public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
@@ -260,6 +262,7 @@ namespace CloudSource.Playnite
                 game.InstallDirectory = record.InstallDirectory;
                 game.InstallSize = (ulong)record.Manifest.InstalledSizeBytes;
                 game.IsInstalled = true;
+                gameActionManager.EnsureEditablePlayAction(game, record);
                 PlayniteApi.Database.Games.Update(game);
             }
             catch (Exception exception)
@@ -270,29 +273,6 @@ namespace CloudSource.Playnite
                     $"Cloud Storage could not complete {game.Name}: {exception.GetBaseException().Message}",
                     NotificationType.Error);
             }
-        }
-
-        public override IEnumerable<PlayController> GetPlayActions(GetPlayActionsArgs args)
-        {
-            if (args?.Game == null || args.Game.PluginId != PluginId)
-            {
-                yield break;
-            }
-
-            var installation = manifestStore.Find(args.Game.GameId, args.Game.InstallDirectory);
-            if (installation == null)
-            {
-                yield break;
-            }
-
-            yield return new AutomaticPlayController(args.Game)
-            {
-                Name = "Play managed Cloud Storage copy",
-                Type = AutomaticPlayActionType.File,
-                Path = installation.LaunchPath,
-                WorkingDir = Path.GetDirectoryName(installation.LaunchPath),
-                TrackingMode = TrackingMode.Default
-            };
         }
 
         public override UserControl GetSettingsView(bool firstRunSettings)
@@ -315,6 +295,7 @@ namespace CloudSource.Playnite
             {
                 layout.EnsureCreated();
                 Logger.Info($"{CloudStorageProduct.DisplayName} managed root ready at {layout.RootPath}.");
+                RepairMissingEditablePlayActions();
             }
             catch (Exception exception)
             {
@@ -333,6 +314,26 @@ namespace CloudSource.Playnite
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
             httpClient.Dispose();
+        }
+
+        private void RepairMissingEditablePlayActions()
+        {
+            var repaired = 0;
+            foreach (var game in PlayniteApi.Database.Games.Where(candidate =>
+                candidate.PluginId == PluginId && candidate.IsInstalled))
+            {
+                var installation = manifestStore.Find(game.GameId, game.InstallDirectory);
+                if (installation != null && gameActionManager.EnsureEditablePlayAction(game, installation))
+                {
+                    PlayniteApi.Database.Games.Update(game);
+                    repaired++;
+                }
+            }
+
+            if (repaired > 0)
+            {
+                Logger.Info($"{CloudStorageProduct.DisplayName} added editable Playnite actions to {repaired} existing installation(s).");
+            }
         }
 
         internal Task<GoogleDriveAuthorization> AuthorizeGoogleDriveAsync(

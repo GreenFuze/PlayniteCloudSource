@@ -24,7 +24,14 @@ namespace CloudSource.Playnite.Installation
         {
             try
             {
-                await Task.Run(() => installer.Uninstall(Game.GameId, Game.InstallDirectory));
+                var result = await Task.Run(() => installer.Uninstall(Game.GameId, Game.InstallDirectory));
+                if (result.RemainingFilesPreserved)
+                {
+                    playniteApi.Notifications.Add(
+                        "cloud-storage-uninstall-preserved-" + Game.Id,
+                        $"{Game.Name} was uninstalled. Files left by the game's uninstaller were preserved in {result.InstallDirectory}.",
+                        NotificationType.Info);
+                }
                 InvokeOnUninstalled();
             }
             catch (Exception exception)

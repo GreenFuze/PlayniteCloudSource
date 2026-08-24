@@ -8,6 +8,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using Playnite.SDK;
+using Playnite.SDK.Models;
 using System.Threading;
 
 namespace CloudSource.Playnite.Tests
@@ -30,9 +32,11 @@ namespace CloudSource.Playnite.Tests
                 InstallsStandaloneInnoBundle(root);
                 CompletesLegacyExtractedInstaller(root);
                 RecoversCompletedNativeInstallWithoutRerunningSetup(root);
+                CreatesAnEditablePlayniteAction(root);
                 ExposesHttpContentLength();
                 RejectsRarLinks(root);
                 DeletesOnlyManifestValidatedManagedInstallations(root);
+                PreservesNativeInstallerLeftovers(root);
                 ReconcilesOnlyAnAuthoritativeProviderAccountScope();
                 Console.WriteLine("All Cloud Storage tests passed.");
                 return 0;
@@ -504,6 +508,72 @@ namespace CloudSource.Playnite.Tests
             Assert(Directory.Exists(outsideDirectory), "Directory outside the managed Games root was deleted.");
         }
 
+        private static void CreatesAnEditablePlayniteAction(string root)
+        {
+            var installDirectory = Path.Combine(root, "editable-action");
+            Directory.CreateDirectory(Path.Combine(installDirectory, "bin"));
+            var manifest = new InstallManifest
+            {
+                GameId = "editable-action",
+                GameName = "Editable Action",
+                LaunchTarget = Path.Combine("bin", "game.exe")
+            };
+            var record = new InstallationRecord(installDirectory, manifest);
+            var game = new Game();
+
+            var manager = new CloudGameActionManager();
+            Assert(manager.EnsureEditablePlayAction(game, record), "The native Playnite action was not created.");
+            var action = game.GameActions.Single();
+            Assert(action.Name == CloudGameActionManager.ManagedActionName, "The managed action name is incorrect.");
+            Assert(action.IsPlayAction && action.Type == GameActionType.File, "The managed action is not a file play action.");
+            Assert(
+                action.Path == Path.Combine(ExpandableVariables.InstallationDirectory, "bin", "game.exe"),
+                "The managed action does not use Playnite's install-directory variable.");
+            Assert(
+                action.WorkingDir == Path.Combine(ExpandableVariables.InstallationDirectory, "bin"),
+                "The managed action working directory is incorrect.");
+            Assert(!manager.EnsureEditablePlayAction(game, record), "The existing managed action was duplicated.");
+            Assert(game.GameActions.Count == 1, "Repeated action synchronization created a duplicate.");
+            action.Path = @"C:\Custom\launcher.exe";
+            Assert(!manager.EnsureEditablePlayAction(game, record), "A user-edited managed action was replaced.");
+            Assert(action.Path == @"C:\Custom\launcher.exe", "The user's launcher edit was overwritten.");
+        }
+
+        private static void PreservesNativeInstallerLeftovers(string root)
+        {
+            var managedRoot = Path.Combine(root, "native-uninstall-managed");
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            layout.EnsureCreated();
+            var gameDirectory = Path.Combine(layout.GamesPath, "Save Game");
+            Directory.CreateDirectory(gameDirectory);
+            File.WriteAllText(Path.Combine(gameDirectory, "game.exe"), "game");
+            File.WriteAllText(Path.Combine(gameDirectory, "unins000.exe"), "uninstaller");
+            File.WriteAllText(Path.Combine(gameDirectory, "save.dat"), "do not delete");
+            var manifestStore = new InstallationManifestStore(() => layout);
+            manifestStore.Write(gameDirectory, new InstallManifest
+            {
+                GameId = "native-save-game",
+                GameName = "Save Game",
+                LaunchTarget = "game.exe",
+                InstallKind = "inno",
+                UninstallTarget = "unins000.exe"
+            });
+            var runner = new FakeNativeInstallerRunner("unused.exe");
+            var installer = CreateInstaller(
+                managedRoot,
+                new MemoryProvider(new byte[] { 1 }),
+                runner);
+
+            var result = installer.Uninstall("native-save-game", gameDirectory);
+
+            Assert(result.RemainingFilesPreserved, "Native uninstaller leftovers were not reported as preserved.");
+            Assert(File.Exists(Path.Combine(gameDirectory, "save.dat")), "A save left by the native uninstaller was deleted.");
+            Assert(!File.Exists(Path.Combine(gameDirectory, InstallationManifestStore.FileName)), "The installation manifest was retained after uninstall.");
+            Assert(
+                runner.LastUninstallArguments == "/NORESTART",
+                "The native uninstaller was not run visibly for user-controlled save retention.");
+        }
+
         private static void ReconcilesOnlyAnAuthoritativeProviderAccountScope()
         {
             var pluginId = Guid.NewGuid();
@@ -667,6 +737,7 @@ namespace CloudSource.Playnite.Tests
 
             public int InstallCalls { get; private set; }
             public string RequiredCompanion { get; set; }
+            public string LastUninstallArguments { get; private set; }
 
             public FakeNativeInstallerRunner(string gameExecutable)
             {
@@ -675,7 +746,11 @@ namespace CloudSource.Playnite.Tests
 
             public int Run(string path, string arguments, string workingDirectory)
             {
-                if (Path.GetFileName(path).StartsWith("unins", StringComparison.OrdinalIgnoreCase)) return 0;
+                if (Path.GetFileName(path).StartsWith("unins", StringComparison.OrdinalIgnoreCase))
+                {
+                    LastUninstallArguments = arguments;
+                    return 0;
+                }
                 InstallCalls++;
                 if (!string.IsNullOrWhiteSpace(RequiredCompanion) && !File.Exists(Path.Combine(workingDirectory, RequiredCompanion)))
                     throw new InvalidOperationException("Installer companion was not staged beside setup.");

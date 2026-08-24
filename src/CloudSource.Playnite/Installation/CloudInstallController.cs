@@ -14,13 +14,20 @@ namespace CloudSource.Playnite.Installation
         private static readonly ILogger Logger = LogManager.GetLogger();
         private readonly IPlayniteAPI playniteApi;
         private readonly ManagedArchiveInstaller installer;
+        private readonly CloudGameActionManager gameActionManager;
         private readonly SourcePackage package;
 
-        public CloudInstallController(Game game, IPlayniteAPI playniteApi, ManagedArchiveInstaller installer, SourcePackage package)
+        public CloudInstallController(
+            Game game,
+            IPlayniteAPI playniteApi,
+            ManagedArchiveInstaller installer,
+            CloudGameActionManager gameActionManager,
+            SourcePackage package)
             : base(game)
         {
             this.playniteApi = playniteApi ?? throw new ArgumentNullException(nameof(playniteApi));
             this.installer = installer ?? throw new ArgumentNullException(nameof(installer));
+            this.gameActionManager = gameActionManager ?? throw new ArgumentNullException(nameof(gameActionManager));
             this.package = package ?? throw new ArgumentNullException(nameof(package));
             Name = "Install from Cloud Storage";
         }
@@ -64,6 +71,13 @@ namespace CloudSource.Playnite.Installation
                 if (record == null)
                 {
                     throw new InvalidOperationException("Cloud Storage installation finished without an installation record.");
+                }
+
+                var databaseGame = playniteApi.Database.Games.Get(Game.Id) ??
+                    throw new InvalidOperationException("The installed game is no longer present in the Playnite database.");
+                if (gameActionManager.EnsureEditablePlayAction(databaseGame, record))
+                {
+                    playniteApi.Database.Games.Update(databaseGame);
                 }
 
                 InvokeOnInstalled(new GameInstalledEventArgs(new GameInstallationData

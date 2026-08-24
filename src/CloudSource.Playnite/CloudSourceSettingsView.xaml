@@ -11,6 +11,8 @@
             <TextBlock FontSize="16" FontWeight="SemiBold" Text="Managed storage" />
             <TextBlock Margin="0,8,0,8" TextWrapping="Wrap"
                         Text="Cloud Storage keeps installed games, staging files, and its cache below one managed root." />
+            <Button HorizontalAlignment="Left" Margin="0,0,0,12" Padding="10,4"
+                    Content="View privacy policy" Command="{Binding OpenPrivacyPolicyCommand}" />
             <TextBlock Text="Managed root" />
             <TextBox Margin="0,4,0,0"
                      Text="{Binding Settings.ManagedRootPath, UpdateSourceTrigger=PropertyChanged}" />
@@ -23,7 +25,7 @@
                         Text="The first provider is read-only. Cloud Storage discovers ZIP, 7z, and RAR archives and never deletes them during local uninstall." />
 
             <TextBlock Margin="0,0,0,12" Opacity="0.7" TextWrapping="Wrap"
-                       Text="Click Connect Google Drive and sign in with your Google account. Cloud Storage requests read-only file access. Tokens are encrypted for this Windows account." />
+                       Text="Before connecting: Cloud Storage will read Drive file and folder metadata and download files you choose to install, solely to show and install your games in Playnite. It never modifies cloud files or shares Google user data with the author, advertisers, or other third parties. OAuth tokens are encrypted for this Windows account. Clicking Connect opens Google's consent screen." />
 
             <StackPanel Orientation="Horizontal">
                 <Button MinWidth="150" Padding="12,5" Content="Connect Google Drive"
@@ -51,7 +53,7 @@
                        Text="OneDrive is read-only. It uses the same archive, installer-bundle, and ROM discovery rules as Google Drive." />
 
             <TextBlock Margin="0,0,0,12" Opacity="0.7" TextWrapping="Wrap"
-                       Text="Click Connect OneDrive and sign in with your Microsoft account. Cloud Storage requests read-only file access. Tokens are encrypted for this Windows account." />
+                       Text="Before connecting: Cloud Storage will read OneDrive file and folder metadata and download files you choose to install, solely to show and install your games in Playnite. It never modifies cloud files or shares Microsoft user data with the author, advertisers, or other third parties. OAuth tokens are encrypted for this Windows account. Clicking Connect opens Microsoft's consent screen." />
 
             <StackPanel Orientation="Horizontal">
                 <Button MinWidth="150" Padding="12,5" Content="Connect OneDrive"

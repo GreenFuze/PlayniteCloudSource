@@ -6,6 +6,7 @@ using Playnite.SDK;
 using Playnite.SDK.Data;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.ComponentModel;
 using System.IO;
 using System.Threading;
@@ -185,6 +186,7 @@ namespace CloudSource.Playnite
         public RelayCommand ChooseGoogleDriveFolderCommand { get; }
         public RelayCommand ConnectOneDriveCommand { get; }
         public RelayCommand DisconnectOneDriveCommand { get; }
+        public RelayCommand OpenPrivacyPolicyCommand { get; }
         public RelayCommand ChooseOneDriveFolderCommand { get; }
 
         public CloudSourceSettingsViewModel(
@@ -207,6 +209,7 @@ namespace CloudSource.Playnite
                 () => !GoogleDriveBusy);
             ConnectOneDriveCommand = new RelayCommand(ConnectOneDrive);
             DisconnectOneDriveCommand = new RelayCommand(DisconnectOneDrive);
+            OpenPrivacyPolicyCommand = new RelayCommand(OpenPrivacyPolicy);
             ChooseOneDriveFolderCommand = new RelayCommand(
                 ChooseOneDriveFolder,
                 () => !OneDriveBusy);
@@ -362,6 +365,15 @@ namespace CloudSource.Playnite
             Settings.GoogleDriveAccountDisplayName = null;
             ClearGoogleDriveFolder();
             GoogleDriveStatus = "Disconnected draft. Save settings to remove the stored authorization.";
+        }
+
+        private static void OpenPrivacyPolicy()
+        {
+            Process.Start(new ProcessStartInfo(
+                "https://github.com/GreenFuze/PlayniteCloudSource/blob/main/PRIVACY.md")
+            {
+                UseShellExecute = true
+            });
         }
 
         private void ChooseGoogleDriveFolder()

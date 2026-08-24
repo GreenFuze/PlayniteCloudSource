@@ -16,6 +16,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
     {
         private const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
         private const string TokenEndpoint = "https://oauth2.googleapis.com/token";
+        private const string RevocationEndpoint = "https://oauth2.googleapis.com/revoke";
         private const string AboutEndpoint = "https://www.googleapis.com/drive/v3/about?fields=user(permissionId,displayName,emailAddress)";
         private const string ReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly";
         private static readonly TimeSpan AuthorizationTimeout = TimeSpan.FromMinutes(5);
@@ -97,7 +98,53 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         public void Disconnect()
         {
-            tokenStore.Clear();
+            GoogleDriveToken token = null;
+            try
+            {
+                if (tokenStore.Exists)
+                {
+                    token = tokenStore.Load();
+                }
+            }
+            catch
+            {
+                // A corrupt local authorization must not prevent local cleanup.
+            }
+
+            try
+            {
+                var tokenValue = string.IsNullOrWhiteSpace(token?.RefreshToken)
+                    ? token?.AccessToken
+                    : token.RefreshToken;
+                if (!string.IsNullOrWhiteSpace(tokenValue))
+                {
+                    RevokeAsync(tokenValue).GetAwaiter().GetResult();
+                }
+            }
+            catch
+            {
+                // Revocation is best effort. The privacy policy also links to
+                // Google's connected-app controls for manual revocation.
+            }
+            finally
+            {
+                tokenStore.Clear();
+            }
+        }
+
+        private async Task RevokeAsync(string token)
+        {
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+            using (var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["token"] = token
+            }))
+            using (var response = await httpClient
+                .PostAsync(RevocationEndpoint, content, timeout.Token)
+                .ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+            }
         }
 
         public async Task<string> GetAccessTokenAsync(

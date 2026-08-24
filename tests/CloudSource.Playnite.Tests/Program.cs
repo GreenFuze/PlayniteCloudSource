@@ -37,6 +37,7 @@ namespace CloudSource.Playnite.Tests
                 DiscoversPackagesIdenticallyAcrossProviders();
                 ScansAndDownloadsOneDrivePackages();
                 RejectsForeignOneDrivePagingLinks();
+                RevokesGoogleAuthorizationOnDisconnect();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
@@ -204,6 +205,25 @@ namespace CloudSource.Playnite.Tests
                         CancellationToken.None).GetAwaiter().GetResult(),
                     "OneDrive accepted a paging link outside Microsoft Graph.");
             }
+        }
+
+        private static void RevokesGoogleAuthorizationOnDisconnect()
+        {
+            var handler = new GoogleRevocationHttpHandler();
+            var tokenStore = new MemoryGoogleDriveTokenStore(new GoogleDriveToken
+            {
+                AccessToken = "access-token",
+                RefreshToken = "refresh-token"
+            });
+            using (var httpClient = new HttpClient(handler))
+            {
+                var connection = new GoogleDriveConnectionService(httpClient, tokenStore);
+                connection.Disconnect();
+            }
+
+            Assert(handler.SawRevocationRequest, "Google authorization was not revoked on disconnect.");
+            Assert(handler.RequestBody.Contains("token=refresh-token"), "Google revocation did not prefer the refresh token.");
+            Assert(!tokenStore.Exists, "Google authorization remained in local storage after disconnect.");
         }
 
         private static void InstallsRomWithoutExtraction(string root)
@@ -866,6 +886,41 @@ namespace CloudSource.Playnite.Tests
             public OneDriveToken Load() => token ?? throw new InvalidOperationException("No token.");
             public void Save(OneDriveToken value) => token = value ?? throw new ArgumentNullException(nameof(value));
             public void Clear() => token = null;
+        }
+
+        private sealed class MemoryGoogleDriveTokenStore : IGoogleDriveTokenStore
+        {
+            private GoogleDriveToken token;
+
+            public bool Exists => token != null;
+
+            public MemoryGoogleDriveTokenStore(GoogleDriveToken token)
+            {
+                this.token = token ?? throw new ArgumentNullException(nameof(token));
+            }
+
+            public GoogleDriveToken Load() => token ?? throw new InvalidOperationException("No token.");
+            public void Save(GoogleDriveToken value) => token = value ?? throw new ArgumentNullException(nameof(value));
+            public void Clear() => token = null;
+        }
+
+        private sealed class GoogleRevocationHttpHandler : HttpMessageHandler
+        {
+            public bool SawRevocationRequest { get; private set; }
+            public string RequestBody { get; private set; } = string.Empty;
+
+            protected override System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                SawRevocationRequest = request.Method == HttpMethod.Post &&
+                    string.Equals(
+                        request.RequestUri.AbsoluteUri,
+                        "https://oauth2.googleapis.com/revoke",
+                        StringComparison.Ordinal);
+                RequestBody = request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            }
         }
 
         private sealed class OneDriveHttpHandler : HttpMessageHandler

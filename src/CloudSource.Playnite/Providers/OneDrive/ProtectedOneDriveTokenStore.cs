@@ -57,7 +57,14 @@ namespace CloudSource.Playnite.Providers.OneDrive
 
         public void Clear()
         {
-            if (File.Exists(tokenPath)) File.Delete(tokenPath);
+            DeleteIfExists(tokenPath);
+            DeleteIfExists(tokenPath + ".staging");
+            DeleteIfExists(tokenPath + ".backup");
+        }
+
+        private static void DeleteIfExists(string path)
+        {
+            if (File.Exists(path)) File.Delete(path);
         }
     }
 }

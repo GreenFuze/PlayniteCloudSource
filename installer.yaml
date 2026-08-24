@@ -1,5 +1,13 @@
 AddonId: CloudSource_a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2
 Packages:
+  - Version: 0.4.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-08-24
+    PackageUrl: https://github.com/GreenFuze/PlayniteCloudSource/releases/download/v0.4.1/CloudStorage_0_4_1.pext
+    Changelog:
+      - Added MGA and dependency attribution notices.
+      - Added provider-policy disclosures and account revocation guidance.
+      - Added best-effort Google authorization revocation on disconnect.
   - Version: 0.4.0
     RequiredApiVersion: 6.16.0
     ReleaseDate: 2026-08-24

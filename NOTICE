@@ -1,0 +1,17 @@
+Cloud Storage for Playnite
+Copyright 2026 GreenFuze and contributors
+
+This project is licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+Cloud Storage reimplements selected installation, archive-safety, title-
+normalization, and content-classification designs from MyGamesAnywhere (MGA),
+Copyright 2026 GreenFuze and contributors. MGA is licensed under the Apache
+License, Version 2.0. Its source is available at:
+https://github.com/GreenFuze/MyGamesAnywhere
+
+Cloud Storage compiles against the Playnite SDK (MIT License, Copyright 2020
+Josef Nemec) and the SharpCompress API (MIT License, Copyright Adam Hathcock).
+Those host/runtime assemblies are not redistributed in the Cloud Storage
+extension package.
+

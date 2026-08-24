@@ -40,11 +40,27 @@ to Google or Microsoft over HTTPS. Those providers process data under their own
 privacy policies. Cloud Storage does not send user data or OAuth tokens to the
 plugin author or to any other third party.
 
-Disconnecting a provider removes its locally stored authorization. Uninstalling
-the extension removes its installed program files; Playnite may retain extension
-settings or data according to Playnite's own uninstall and backup behavior.
-Players can also revoke Cloud Storage from their Google or Microsoft account's
-connected-app settings.
+Cloud Storage's use of information received from Google Workspace APIs adheres
+to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+including its Limited Use requirements. Provider data is used only for the
+visible library-discovery and game-installation features requested by the
+player. It is not sold, used for advertising, used for credit decisions, or
+used to train generalized AI or machine-learning models.
+
+Disconnecting a provider and saving the settings removes its locally stored
+authorization, account identity, and selected-folder configuration. Cloud
+Storage also attempts to revoke Google authorization remotely. Players can
+review or revoke access directly in [Google Account connections](https://myaccount.google.com/connections)
+or [Microsoft account consent management](https://account.live.com/consent/Manage).
+Work or school Microsoft accounts can use [My Apps](https://myapps.microsoft.com/).
+
+Playnite may retain extension settings or data according to its own uninstall
+and backup behavior. Before uninstalling Cloud Storage, disconnect each provider
+and save the settings. To remove every remaining local copy, delete Cloud
+Storage's Playnite extension-data directory and the configured managed storage
+root. The managed root can contain installed games and save data, so inspect it
+before deleting it. None of these actions deletes files from Google Drive or
+OneDrive.
 
 ## Contact
 

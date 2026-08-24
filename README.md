@@ -84,6 +84,8 @@ retained and marked unavailable so its local installation is not destroyed.
 - Cloud Storage has no telemetry, analytics, advertising, or developer-operated
   backend.
 - No user data or OAuth tokens are sent to the plugin author.
+- Google Workspace data is handled under Google's API Services User Data
+  Policy, including its Limited Use requirements.
 
 See the full [privacy policy](PRIVACY.md).
 
@@ -122,3 +124,5 @@ pull requests.
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).
+Attributions for reused designs and development dependencies are in
+[`NOTICE`](NOTICE).

@@ -1,20 +1,21 @@
 using CloudSource.Playnite.Providers.GoogleDrive;
 using Playnite.SDK;
 using System;
+using System.Windows;
 
 namespace CloudSource.Playnite
 {
     internal sealed class GoogleDriveFolderPickerDialog
     {
         private readonly IDialogsFactory dialogs;
-        private readonly GoogleDrivePickerClient pickerClient;
+        private readonly IGoogleDriveFolderBrowser browser;
 
         public GoogleDriveFolderPickerDialog(
             IDialogsFactory dialogs,
-            GoogleDrivePickerClient pickerClient)
+            IGoogleDriveFolderBrowser browser)
         {
             this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
-            this.pickerClient = pickerClient ?? throw new ArgumentNullException(nameof(pickerClient));
+            this.browser = browser ?? throw new ArgumentNullException(nameof(browser));
         }
 
         public GoogleDriveFolder Show(
@@ -27,25 +28,39 @@ namespace CloudSource.Playnite
                 throw new ArgumentNullException(nameof(configuration));
             }
 
-            GoogleDriveFolder result = null;
-            var progress = dialogs.ActivateGlobalProgress(
-                async args =>
-                {
-                    result = await pickerClient.SelectFolderAsync(
-                        configuration,
-                        draftAuthorization,
-                        args.CancelToken);
-                },
-                new GlobalProgressOptions("Choose a Google Drive source folder in your browser", true)
-                {
-                    IsIndeterminate = true
-                });
-            if (progress.Error != null)
+            var window = dialogs.CreateWindow(new WindowCreationOptions
             {
-                throw progress.Error;
-            }
+                ShowMaximizeButton = false,
+                ShowMinimizeButton = false,
+                ShowCloseButton = true
+            });
+            window.Title = "Choose Google Drive source folder";
+            window.Owner = dialogs.GetCurrentAppWindow();
+            window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            window.Width = 680;
+            window.Height = 560;
+            window.MinWidth = 560;
+            window.MinHeight = 440;
 
-            if (progress.Canceled) return null;
+            GoogleDriveFolder result = null;
+            var viewModel = new GoogleDriveFolderPickerViewModel(
+                browser,
+                configuration,
+                draftAuthorization,
+                existingSelectionPath,
+                folder =>
+                {
+                    result = folder;
+                    window.DialogResult = true;
+                },
+                () => window.DialogResult = false,
+                message => dialogs.ShowErrorMessage(message, CloudStorageProduct.DisplayName));
+            window.Content = new GoogleDriveFolderPickerView
+            {
+                DataContext = viewModel
+            };
+            window.Closed += (_, __) => viewModel.Dispose();
+            window.ShowDialog();
             return result;
         }
     }

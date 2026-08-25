@@ -19,7 +19,7 @@ When a player connects a provider, Cloud Storage requests read-only access:
 The plugin reads account identity, folder and file metadata, and the contents of
 files that must be downloaded for installation. Cloud Storage's code limits
 Google discovery and downloads to the concrete folder selected through Google
-Picker, even though the OAuth scope is broader. The plugin does not modify or
+Drive's Playnite-native folder browser, even though the OAuth scope is broader. The plugin does not modify or
 delete cloud files.
 
 ## Local storage

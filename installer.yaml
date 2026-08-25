@@ -1,5 +1,13 @@
 AddonId: CloudSource_a6fd3d1b-450e-4c8b-8476-ce14ad3ab3c2
 Packages:
+  - Version: 0.4.2
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-08-26
+    PackageUrl: https://github.com/GreenFuze/PlayniteCloudSource/releases/download/v0.4.2/CloudStorage_0_4_2.pext
+    Changelog:
+      - Restored the Playnite-native hierarchical Google Drive folder browser.
+      - Added direct browsing of My Drive and Shared with me, including nested folders.
+      - Removed the browser-based Google Picker and its API-key dependency.
   - Version: 0.4.1
     RequiredApiVersion: 6.16.0
     ReleaseDate: 2026-08-25

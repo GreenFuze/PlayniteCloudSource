@@ -79,8 +79,8 @@ retained and marked unavailable so its local installation is not destroyed.
   callback.
 - Google Drive requests restricted, read-only `drive.readonly` access because
   Google's per-file scope cannot enumerate the existing descendants of a
-  selected folder. Google Picker chooses the folder that Cloud Storage scans;
-  the extension does not scan other Drive locations. OneDrive requests
+  selected folder. Cloud Storage's Playnite-native browser chooses the folder
+  that the extension scans; other Drive locations are not scanned. OneDrive requests
   delegated `Files.Read` and `User.Read`.
 - Access and refresh tokens are encrypted with Windows DPAPI for the current
   Windows account and stored in Playnite's extension-data directory.

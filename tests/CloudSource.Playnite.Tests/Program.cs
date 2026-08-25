@@ -40,7 +40,7 @@ namespace CloudSource.Playnite.Tests
                 RevokesGoogleAuthorizationOnDisconnect();
                 SendsGoogleClientCredentialsForTokenRequests();
                 UsesReadOnlyGoogleAuthorization();
-                RendersGooglePickerOnlyOnLoopback();
+                BrowsesGoogleDriveFoldersInsidePlaynite();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
@@ -299,22 +299,55 @@ namespace CloudSource.Playnite.Tests
             }
         }
 
-        private static void RendersGooglePickerOnlyOnLoopback()
+        private static void BrowsesGoogleDriveFoldersInsidePlaynite()
         {
-            var page = GoogleDrivePickerClient.RenderPickerPage(
-                new GoogleDrivePickerConfiguration("741674503892", "picker-key"),
-                "short-lived-access-token",
-                "picker-state",
-                "/google-picker/picker-state/callback");
-            var normalizedPage = page.Replace("\\/", "/");
-            Assert(page.Contains("short-lived-access-token"),
-                "The local Picker page did not receive the Google access token.");
-            Assert(normalizedPage.Contains("/google-picker/picker-state/callback"),
-                "The local Picker page did not use an unguessable loopback callback.");
-            Assert(page.Contains("strict-origin-when-cross-origin"),
-                "The local Picker page would suppress the referrer required by the restricted API key.");
-            Assert(!page.Contains("greenfuze.github.io"),
-                "The Picker page attempted to send credentials through public hosting.");
+            var handler = new GoogleFolderBrowsingHttpHandler();
+            var tokenStore = new MemoryGoogleDriveTokenStore(new GoogleDriveToken
+            {
+                AccessToken = "access-token",
+                RefreshToken = "refresh-token",
+                Scope = GoogleDriveConnectionService.RequiredScope,
+                ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+            });
+            using (var httpClient = new HttpClient(handler))
+            {
+                var connection = new GoogleDriveConnectionService(
+                    httpClient,
+                    tokenStore,
+                    new GoogleOAuthClientCredentials("client-id", "client-secret"));
+                var apiClient = new GoogleDriveApiClient(
+                    httpClient,
+                    connection,
+                    new CloudPackageDiscovery());
+                var browser = new GoogleDriveFolderBrowser(apiClient);
+                var locations = browser.GetDriveLocations();
+
+                Assert(locations.Count == 2,
+                    "The in-Playnite Google Drive browser did not expose both roots.");
+                Assert(locations[0].Kind == GoogleDriveFolderKind.MyDrive,
+                    "My Drive was not the first Google Drive browser root.");
+                Assert(locations[1].Kind == GoogleDriveFolderKind.SharedWithMe,
+                    "Shared with me was not exposed by the Google Drive browser.");
+                Assert(!locations[0].CanSelect && !locations[1].CanSelect,
+                    "A virtual Google Drive root could be selected as the game library.");
+
+                var configuration = new GoogleDriveAccountConfiguration(
+                    "client-id",
+                    "account-id",
+                    "Account");
+                var sharedFolders = browser.BrowseAsync(
+                    configuration,
+                    locations[1],
+                    null,
+                    CancellationToken.None).GetAwaiter().GetResult();
+
+                Assert(sharedFolders.Count == 1 && sharedFolders[0].Name == "Shared Games",
+                    "Shared with me did not return its concrete folders.");
+                Assert(sharedFolders[0].CanSelect,
+                    "A concrete shared folder could not be selected.");
+                Assert(handler.DecodedQueries.Any(query => query.Contains("sharedWithMe = true")),
+                    "Shared with me browsing did not use Google's sharedWithMe query.");
+            }
         }
 
         private static void InstallsRomWithoutExtraction(string root)
@@ -1027,6 +1060,25 @@ namespace CloudSource.Playnite.Tests
                 {
                     Content = new StringContent(
                         "{\"access_token\":\"new-access-token\",\"refresh_token\":\"new-refresh-token\",\"expires_in\":3600}",
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }
+        }
+
+        private sealed class GoogleFolderBrowsingHttpHandler : HttpMessageHandler
+        {
+            public List<string> DecodedQueries { get; } = new List<string>();
+
+            protected override System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                DecodedQueries.Add(Uri.UnescapeDataString(request.RequestUri.Query));
+                return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"files\":[{\"id\":\"shared-folder\",\"name\":\"Shared Games\",\"mimeType\":\"application/vnd.google-apps.folder\"}]}",
                         Encoding.UTF8,
                         "application/json")
                 });

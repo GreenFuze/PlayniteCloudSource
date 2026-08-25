@@ -26,7 +26,7 @@
       <li><strong>Google Drive:</strong> restricted <code>drive.readonly</code>, which technically permits reading all files in the connected Drive. This is required because Google’s per-file scope cannot enumerate existing descendants of a selected folder.</li>
       <li><strong>Microsoft OneDrive:</strong> delegated <code>Files.Read</code> and <code>User.Read</code>.</li>
     </ul>
-    <p>The extension reads account identity, folder and file metadata, and file contents needed for visible library-discovery and installation features. Cloud Storage’s code limits Google discovery and downloads to the concrete folder selected through Google Picker, even though the OAuth scope is broader. It does not request provider write or delete permissions and does not modify cloud files.</p>
+    <p>The extension reads account identity, folder and file metadata, and file contents needed for visible library-discovery and installation features. Cloud Storage’s code limits Google discovery and downloads to the concrete folder selected in its Playnite-native browser, even though the OAuth scope is broader. It does not request provider write or delete permissions and does not modify cloud files.</p>
 
     <h2>Local storage</h2>
     <p>Cloud Storage keeps provider account identifiers, selected-folder identifiers, encrypted OAuth tokens, installation manifests, installed game files, and ordinary Playnite diagnostic logs on the player’s computer.</p>

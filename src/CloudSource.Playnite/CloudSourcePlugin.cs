@@ -71,12 +71,10 @@ namespace CloudSource.Playnite
                 titleNormalizer,
                 archiveClassifier);
             var googleDriveApi = new GoogleDriveApiClient(httpClient, googleDriveConnection, packageDiscovery);
-            var googleDrivePickerClient = new GoogleDrivePickerClient(
-                googleDriveConnection,
-                GoogleDriveApplication.CreatePickerConfiguration());
+            var googleDriveFolderBrowser = new GoogleDriveFolderBrowser(googleDriveApi);
             var googleDriveFolderPicker = new GoogleDriveFolderPickerDialog(
                 PlayniteApi.Dialogs,
-                googleDrivePickerClient);
+                googleDriveFolderBrowser);
             CloudSourceSettingsViewModel settingsViewModel = null;
             var googleDriveProvider = new GoogleDriveProvider(
                 () => settingsViewModel.Settings.CreateGoogleDriveProviderConfiguration(),

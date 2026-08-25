@@ -325,20 +325,13 @@ namespace CloudSource.Playnite
             try
             {
                 var authorization = await googleDriveProvider.ConnectAsync(CancellationToken.None);
-                var accountChanged = !string.Equals(
-                    Settings.GoogleDriveAccountId,
-                    authorization.Id,
-                    StringComparison.Ordinal);
                 pendingGoogleDriveDisconnect = false;
                 Settings.GoogleDriveEnabled = true;
                 Settings.GoogleDriveAccountId = authorization.Id;
                 Settings.GoogleDriveAccountDisplayName = authorization.DisplayName;
-                if (accountChanged)
-                {
-                    ClearGoogleDriveFolder();
-                }
+                ClearGoogleDriveFolder();
 
-                GoogleDriveStatus = $"Connected draft: {authorization.DisplayName}. Save settings to commit.";
+                GoogleDriveStatus = $"Connected draft: {authorization.DisplayName}. Choose a source folder, then save settings.";
             }
             catch (Exception exception)
             {
@@ -370,7 +363,7 @@ namespace CloudSource.Playnite
         private static void OpenPrivacyPolicy()
         {
             Process.Start(new ProcessStartInfo(
-                "https://github.com/GreenFuze/PlayniteCloudSource/blob/main/PRIVACY.md")
+                "https://greenfuze.github.io/PlayniteCloudSource/privacy.html")
             {
                 UseShellExecute = true
             });

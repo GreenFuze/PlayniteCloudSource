@@ -39,6 +39,8 @@ namespace CloudSource.Playnite.Tests
                 RejectsForeignOneDrivePagingLinks();
                 RevokesGoogleAuthorizationOnDisconnect();
                 SendsGoogleClientCredentialsForTokenRequests();
+                UsesPerFileGoogleAuthorization();
+                RendersGooglePickerOnlyOnLoopback();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
@@ -262,6 +264,57 @@ namespace CloudSource.Playnite.Tests
                 "The Google authorization-code exchange was not exercised.");
             Assert(handler.RequestBodies[1].Contains("grant_type=refresh_token"),
                 "The Google refresh exchange was not exercised.");
+        }
+
+        private static void UsesPerFileGoogleAuthorization()
+        {
+            var uri = GoogleDriveConnectionService.BuildAuthorizationUri(
+                "client-id",
+                "http://127.0.0.1:12345/oauth2/callback",
+                "state",
+                "challenge");
+            var decoded = Uri.UnescapeDataString(uri);
+            Assert(decoded.Contains("scope=" + GoogleDriveConnectionService.RequiredScope),
+                "Google authorization did not request drive.file.");
+            Assert(!decoded.Contains("drive.readonly"),
+                "Google authorization still requested the restricted drive.readonly scope.");
+            Assert(!decoded.Contains("include_granted_scopes"),
+                "Google authorization could silently retain an earlier broad grant.");
+
+            var broadTokenStore = new MemoryGoogleDriveTokenStore(new GoogleDriveToken
+            {
+                AccessToken = "access-token",
+                RefreshToken = "refresh-token",
+                Scope = "https://www.googleapis.com/auth/drive.readonly",
+                ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+            });
+            using (var httpClient = new HttpClient(new GoogleRevocationHttpHandler()))
+            {
+                var connection = new GoogleDriveConnectionService(
+                    httpClient,
+                    broadTokenStore,
+                    new GoogleOAuthClientCredentials("client-id", "client-secret"));
+                Assert(!connection.HasStoredAuthorization,
+                    "A legacy restricted Google authorization was accepted as folder-scoped.");
+            }
+        }
+
+        private static void RendersGooglePickerOnlyOnLoopback()
+        {
+            var page = GoogleDrivePickerClient.RenderPickerPage(
+                new GoogleDrivePickerConfiguration("741674503892", "picker-key"),
+                "short-lived-access-token",
+                "picker-state",
+                "/google-picker/picker-state/callback");
+            var normalizedPage = page.Replace("\\/", "/");
+            Assert(page.Contains("short-lived-access-token"),
+                "The local Picker page did not receive the Google access token.");
+            Assert(normalizedPage.Contains("/google-picker/picker-state/callback"),
+                "The local Picker page did not use an unguessable loopback callback.");
+            Assert(page.Contains("strict-origin-when-cross-origin"),
+                "The local Picker page would suppress the referrer required by the restricted API key.");
+            Assert(!page.Contains("greenfuze.github.io"),
+                "The Picker page attempted to send credentials through public hosting.");
         }
 
         private static void InstallsRomWithoutExtraction(string root)

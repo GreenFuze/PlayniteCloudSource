@@ -89,6 +89,16 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             return new GoogleDriveFolder(safeName, objectId, displayPath, GoogleDriveFolderKind.Folder);
         }
 
+        public static GoogleDriveFolder CreatePickerSelection(string objectId, string name)
+        {
+            var safeName = Required(name, nameof(name)).Replace('/', '\u2215').Replace('\\', '\u2215');
+            return new GoogleDriveFolder(
+                safeName,
+                objectId,
+                "Google Drive/" + safeName,
+                GoogleDriveFolderKind.Folder);
+        }
+
         private static string Required(string value, string parameterName)
         {
             if (string.IsNullOrWhiteSpace(value))

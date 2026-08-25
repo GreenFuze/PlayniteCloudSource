@@ -17,7 +17,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         private const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
         private const string RevocationEndpoint = "https://oauth2.googleapis.com/revoke";
         private const string AboutEndpoint = "https://www.googleapis.com/drive/v3/about?fields=user(permissionId,displayName,emailAddress)";
-        private const string ReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly";
+        internal const string RequiredScope = "https://www.googleapis.com/auth/drive.file";
         private static readonly TimeSpan AuthorizationTimeout = TimeSpan.FromMinutes(5);
 
         private readonly HttpClient httpClient;
@@ -25,7 +25,21 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         private readonly GoogleOAuthClientCredentials credentials;
         private readonly SemaphoreSlim tokenLock = new SemaphoreSlim(1, 1);
 
-        public bool HasStoredAuthorization => tokenStore.Exists;
+        public bool HasStoredAuthorization
+        {
+            get
+            {
+                if (!tokenStore.Exists) return false;
+                try
+                {
+                    return HasRequiredScope(tokenStore.Load());
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
 
         public GoogleDriveConnectionService(
             HttpClient httpClient,
@@ -70,6 +84,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                     callback,
                     codeVerifier,
                     cancellationToken).ConfigureAwait(false);
+                EnsureRequiredScope(token);
 
                 if (string.IsNullOrWhiteSpace(token.RefreshToken))
                 {
@@ -96,7 +111,14 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 throw new ArgumentNullException(nameof(authorization));
             }
 
+            EnsureRequiredScope(authorization.Token);
             tokenStore.Save(authorization.Token);
+        }
+
+        public void ClearIncompatibleAuthorization()
+        {
+            if (!tokenStore.Exists || HasStoredAuthorization) return;
+            Disconnect();
         }
 
         public void Disconnect()
@@ -163,6 +185,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             try
             {
                 var token = tokenStore.Load();
+                EnsureRequiredScope(token);
                 if (!string.IsNullOrWhiteSpace(token.AccessToken) &&
                     token.ExpiresAtUtc > DateTime.UtcNow.AddMinutes(1))
                 {
@@ -176,6 +199,8 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
                 var refreshed = await RefreshAsync(token.RefreshToken, cancellationToken).ConfigureAwait(false);
                 refreshed.RefreshToken = token.RefreshToken;
+                refreshed.Scope = FirstNonEmpty(refreshed.Scope, token.Scope);
+                EnsureRequiredScope(refreshed);
                 tokenStore.Save(refreshed);
                 return refreshed.AccessToken;
             }
@@ -213,6 +238,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             try
             {
                 var token = draftAuthorization.Token;
+                EnsureRequiredScope(token);
                 if (!string.IsNullOrWhiteSpace(token.AccessToken) &&
                     token.ExpiresAtUtc > DateTime.UtcNow.AddMinutes(1))
                 {
@@ -227,6 +253,8 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
                 var refreshed = await RefreshAsync(token.RefreshToken, cancellationToken).ConfigureAwait(false);
                 refreshed.RefreshToken = token.RefreshToken;
+                refreshed.Scope = FirstNonEmpty(refreshed.Scope, token.Scope);
+                EnsureRequiredScope(refreshed);
                 draftAuthorization.ReplaceToken(refreshed);
                 return refreshed.AccessToken;
             }
@@ -402,7 +430,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             await stream.FlushAsync().ConfigureAwait(false);
         }
 
-        private static string BuildAuthorizationUri(
+        internal static string BuildAuthorizationUri(
             string clientId,
             string redirectUri,
             string state,
@@ -414,11 +442,10 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 ["client_id"] = clientId,
                 ["code_challenge"] = codeChallenge,
                 ["code_challenge_method"] = "S256",
-                ["include_granted_scopes"] = "true",
                 ["prompt"] = "consent select_account",
                 ["redirect_uri"] = redirectUri,
                 ["response_type"] = "code",
-                ["scope"] = ReadOnlyScope,
+                ["scope"] = RequiredScope,
                 ["state"] = state
             };
 
@@ -436,6 +463,31 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             }
 
             return builder.ToString();
+        }
+
+        private static void EnsureRequiredScope(GoogleDriveToken token)
+        {
+            if (!HasRequiredScope(token))
+            {
+                throw new InvalidOperationException(
+                    "Google Drive authorization does not grant folder-scoped access. Disconnect and reconnect the account.");
+            }
+        }
+
+        private static bool HasRequiredScope(GoogleDriveToken token)
+        {
+            if (token == null || string.IsNullOrWhiteSpace(token.Scope)) return false;
+            var scopes = new HashSet<string>(
+                token.Scope.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries),
+                StringComparer.Ordinal);
+            return scopes.Contains(RequiredScope) &&
+                !scopes.Contains("https://www.googleapis.com/auth/drive.readonly") &&
+                !scopes.Contains("https://www.googleapis.com/auth/drive");
+        }
+
+        private static string FirstNonEmpty(string primary, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(primary) ? fallback : primary;
         }
 
         private static HttpRequestMessage CreateAuthorizedRequest(

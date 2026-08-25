@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="cloud-storage.png">
+  <meta name="description" content="Privacy policy for Cloud Storage for Playnite.">
+  <title>Privacy policy · Cloud Storage for Playnite</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="cloud-storage.png">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./"><img src="cloud-storage.png" alt="" width="48" height="48"><span>Cloud Storage for Playnite</span></a>
+    <nav aria-label="Primary navigation"><a href="./">Home</a><a aria-current="page" href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="https://github.com/GreenFuze/PlayniteCloudSource">Source</a></nav>
+  </header>
+
+  <main class="document">
+    <p class="eyebrow">Effective August 25, 2026</p>
+    <h1>Privacy policy</h1>
+    <p class="lede">Cloud Storage is a local Playnite extension. It has no developer-operated server, telemetry, analytics, advertising, or user-tracking system. The plugin author does not collect, receive, sell, or share personal data through the extension.</p>
+
+    <h2>Data accessed</h2>
+    <p>When a player connects a provider, Cloud Storage requests access needed for the folder the player selects:</p>
+    <ul>
+      <li><strong>Google Drive:</strong> <code>drive.file</code>, granting access to files and folders the player explicitly shares with the extension through Google Picker.</li>
+      <li><strong>Microsoft OneDrive:</strong> delegated <code>Files.Read</code> and <code>User.Read</code>.</li>
+    </ul>
+    <p>The extension reads account identity, folder and file metadata, and file contents needed for visible library-discovery and installation features. It does not request provider write or delete permissions and does not modify cloud files.</p>
+
+    <h2>Local storage</h2>
+    <p>Cloud Storage keeps provider account identifiers, selected-folder identifiers, encrypted OAuth tokens, installation manifests, installed game files, and ordinary Playnite diagnostic logs on the player’s computer.</p>
+    <p>OAuth tokens are encrypted with Windows Data Protection API for the current Windows account. The extension never stores account passwords.</p>
+
+    <h2>Data transfer and sharing</h2>
+    <p>Authentication and file requests are sent directly from the player’s computer to Google or Microsoft over HTTPS. Those providers process data under their own privacy policies. Cloud Storage does not send provider data or OAuth tokens to the plugin author or another third party.</p>
+    <p>Cloud Storage’s use of information received from Google Workspace APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including its Limited Use requirements. Google user data is not sold, used for advertising or credit decisions, or used to train generalized AI or machine-learning models.</p>
+
+    <h2>Retention and deletion</h2>
+    <p>Disconnecting a provider and saving settings removes its locally stored authorization, account identity, and selected-folder configuration. Cloud Storage also attempts to revoke Google authorization remotely.</p>
+    <p>Players can revoke access in <a href="https://myaccount.google.com/connections">Google Account connections</a> or <a href="https://account.live.com/consent/Manage">Microsoft account consent management</a>. Work or school Microsoft accounts can use <a href="https://myapps.microsoft.com/">My Apps</a>.</p>
+    <p>Playnite may retain extension settings according to its backup behavior. Installed games remain below the player’s configured managed storage root until the player uninstalls or deletes them. None of these actions deletes files from Google Drive or OneDrive.</p>
+
+    <h2>Contact</h2>
+    <p>Privacy questions and deletion concerns can be submitted through the public <a href="https://github.com/GreenFuze/PlayniteCloudSource/issues">GitHub issue tracker</a>.</p>
+  </main>
+
+  <footer><span>Cloud Storage for Playnite</span><nav aria-label="Legal navigation"><a href="./">Home</a><a href="privacy.html">Privacy policy</a><a href="terms.html">Terms of service</a></nav></footer>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Cloud Storage privacy policy
 
-**Effective date:** 2026-08-24
+**Effective date:** 2026-08-25
 
 Cloud Storage is a local Playnite extension. It has no developer-operated
 server, telemetry, analytics, advertising, or user-tracking system. The plugin
@@ -9,15 +9,16 @@ extension.
 
 ## Data accessed
 
-When a player connects a provider, Cloud Storage requests read-only access to
-the selected cloud account:
+When a player connects a provider, Cloud Storage requests access needed for the
+folder the player selects:
 
-- Google Drive: `drive.readonly`.
+- Google Drive: `drive.file`, granting access to files and folders the player
+  explicitly shares with the extension through Google Picker.
 - Microsoft OneDrive: delegated `Files.Read` and `User.Read`.
 
 The plugin reads account identity, folder and file metadata, and the contents of
-files that must be downloaded for installation. It does not request provider
-write or delete permissions and does not modify cloud files.
+files that must be downloaded for installation. Google access is limited to
+items shared with the app. The plugin does not modify or delete cloud files.
 
 ## Local storage
 

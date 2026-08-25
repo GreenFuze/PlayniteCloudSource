@@ -61,6 +61,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 throw new InvalidOperationException("This Cloud Storage build has no Google application registration configured.");
 
             pendingAuthorization = null;
+            connectionService.ClearIncompatibleAuthorization();
             pendingAuthorization = await connectionService.AuthorizeAsync(
                 clientId,
                 cancellationToken).ConfigureAwait(false);

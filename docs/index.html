@@ -50,7 +50,7 @@
         <article>
           <span class="number">2</span>
           <h3>Choose one folder</h3>
-          <p>For Google Drive, Google Picker grants the extension access only to the concrete folder you select. Drive-wide access is not requested.</p>
+          <p>Google Picker chooses the concrete folder Cloud Storage will scan. Drive roots are intentionally not accepted.</p>
         </article>
         <article>
           <span class="number">3</span>
@@ -66,7 +66,8 @@
         <h2>Only what the feature needs</h2>
       </div>
       <div>
-        <p>Cloud Storage uses Google’s <code>drive.file</code> permission to read metadata and download game-package files from the folder you deliberately share through Google Picker.</p>
+        <p>Cloud Storage requests Google’s restricted, read-only <code>drive.readonly</code> permission. Google’s per-file scope cannot enumerate the existing descendants of a selected folder, so it cannot provide an automatically updated recursive game library.</p>
+        <p>The OAuth scope technically permits reading the connected Drive, but Cloud Storage’s code limits discovery and downloads to the concrete folder you select through Google Picker. It never modifies or deletes Drive files.</p>
         <p>Provider requests travel directly between your Windows PC and Google. There is no developer-operated backend, telemetry, advertising, or sale of user data.</p>
         <p><a href="privacy.html">Read the complete privacy policy</a>.</p>
       </div>

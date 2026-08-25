@@ -17,7 +17,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
         private const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
         private const string RevocationEndpoint = "https://oauth2.googleapis.com/revoke";
         private const string AboutEndpoint = "https://www.googleapis.com/drive/v3/about?fields=user(permissionId,displayName,emailAddress)";
-        internal const string RequiredScope = "https://www.googleapis.com/auth/drive.file";
+        internal const string RequiredScope = "https://www.googleapis.com/auth/drive.readonly";
         private static readonly TimeSpan AuthorizationTimeout = TimeSpan.FromMinutes(5);
 
         private readonly HttpClient httpClient;
@@ -470,7 +470,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             if (!HasRequiredScope(token))
             {
                 throw new InvalidOperationException(
-                    "Google Drive authorization does not grant folder-scoped access. Disconnect and reconnect the account.");
+                    "Google Drive authorization does not grant read-only library access. Disconnect and reconnect the account.");
             }
         }
 
@@ -481,7 +481,6 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 token.Scope.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries),
                 StringComparer.Ordinal);
             return scopes.Contains(RequiredScope) &&
-                !scopes.Contains("https://www.googleapis.com/auth/drive.readonly") &&
                 !scopes.Contains("https://www.googleapis.com/auth/drive");
         }
 

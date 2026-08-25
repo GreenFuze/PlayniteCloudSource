@@ -25,8 +25,8 @@ staging data, and manifests stay together below one managed storage directory.
 ## Features
 
 - Google Drive and Microsoft OneDrive with browser-based OAuth login.
-- Provider access limited to the selected cloud content, with Windows-user-bound token encryption.
-- Recursive discovery below a folder deliberately shared through the provider picker.
+- Read-only provider access with Windows-user-bound token encryption.
+- Recursive discovery below a folder deliberately selected through the provider picker.
 - ZIP, 7z, and RAR game archives.
 - Standalone installers and installer bundles inside archives.
 - Common cartridge and arcade ROM formats.
@@ -77,8 +77,10 @@ retained and marked unavailable so its local installation is not destroyed.
 
 - OAuth uses the system browser, PKCE, random state, and an exact loopback
   callback.
-- Google Drive requests non-sensitive `drive.file` access and uses Google
-  Picker so the user shares only one concrete folder. OneDrive requests
+- Google Drive requests restricted, read-only `drive.readonly` access because
+  Google's per-file scope cannot enumerate the existing descendants of a
+  selected folder. Google Picker chooses the folder that Cloud Storage scans;
+  the extension does not scan other Drive locations. OneDrive requests
   delegated `Files.Read` and `User.Read`.
 - Access and refresh tokens are encrypted with Windows DPAPI for the current
   Windows account and stored in Playnite's extension-data directory.

@@ -9,16 +9,18 @@ extension.
 
 ## Data accessed
 
-When a player connects a provider, Cloud Storage requests access needed for the
-folder the player selects:
+When a player connects a provider, Cloud Storage requests read-only access:
 
-- Google Drive: `drive.file`, granting access to files and folders the player
-  explicitly shares with the extension through Google Picker.
+- Google Drive: restricted `drive.readonly`, which technically permits reading
+  all files in the connected Drive. This is required because Google's per-file
+  scope cannot enumerate existing descendants of a selected folder.
 - Microsoft OneDrive: delegated `Files.Read` and `User.Read`.
 
 The plugin reads account identity, folder and file metadata, and the contents of
-files that must be downloaded for installation. Google access is limited to
-items shared with the app. The plugin does not modify or delete cloud files.
+files that must be downloaded for installation. Cloud Storage's code limits
+Google discovery and downloads to the concrete folder selected through Google
+Picker, even though the OAuth scope is broader. The plugin does not modify or
+delete cloud files.
 
 ## Local storage
 

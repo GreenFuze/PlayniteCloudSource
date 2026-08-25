@@ -325,13 +325,22 @@ namespace CloudSource.Playnite
             try
             {
                 var authorization = await googleDriveProvider.ConnectAsync(CancellationToken.None);
+                var accountChanged = !string.Equals(
+                    Settings.GoogleDriveAccountId,
+                    authorization.Id,
+                    StringComparison.Ordinal);
                 pendingGoogleDriveDisconnect = false;
                 Settings.GoogleDriveEnabled = true;
                 Settings.GoogleDriveAccountId = authorization.Id;
                 Settings.GoogleDriveAccountDisplayName = authorization.DisplayName;
-                ClearGoogleDriveFolder();
+                if (accountChanged)
+                {
+                    ClearGoogleDriveFolder();
+                }
 
-                GoogleDriveStatus = $"Connected draft: {authorization.DisplayName}. Choose a source folder, then save settings.";
+                GoogleDriveStatus = accountChanged
+                    ? $"Connected draft: {authorization.DisplayName}. Choose a source folder, then save settings."
+                    : $"Connected draft: {authorization.DisplayName}. Save settings to commit.";
             }
             catch (Exception exception)
             {

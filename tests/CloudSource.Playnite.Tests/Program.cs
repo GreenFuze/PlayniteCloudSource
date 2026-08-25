@@ -39,7 +39,7 @@ namespace CloudSource.Playnite.Tests
                 RejectsForeignOneDrivePagingLinks();
                 RevokesGoogleAuthorizationOnDisconnect();
                 SendsGoogleClientCredentialsForTokenRequests();
-                UsesPerFileGoogleAuthorization();
+                UsesReadOnlyGoogleAuthorization();
                 RendersGooglePickerOnlyOnLoopback();
                 InstallsRomWithoutExtraction(root);
                 ReportsInstallationPhases(root);
@@ -266,7 +266,7 @@ namespace CloudSource.Playnite.Tests
                 "The Google refresh exchange was not exercised.");
         }
 
-        private static void UsesPerFileGoogleAuthorization()
+        private static void UsesReadOnlyGoogleAuthorization()
         {
             var uri = GoogleDriveConnectionService.BuildAuthorizationUri(
                 "client-id",
@@ -275,9 +275,9 @@ namespace CloudSource.Playnite.Tests
                 "challenge");
             var decoded = Uri.UnescapeDataString(uri);
             Assert(decoded.Contains("scope=" + GoogleDriveConnectionService.RequiredScope),
-                "Google authorization did not request drive.file.");
-            Assert(!decoded.Contains("drive.readonly"),
-                "Google authorization still requested the restricted drive.readonly scope.");
+                "Google authorization did not request drive.readonly.");
+            Assert(!decoded.Contains("scope=https://www.googleapis.com/auth/drive.file"),
+                "Google authorization requested per-file access that cannot enumerate a selected folder recursively.");
             Assert(!decoded.Contains("include_granted_scopes"),
                 "Google authorization could silently retain an earlier broad grant.");
 
@@ -285,7 +285,7 @@ namespace CloudSource.Playnite.Tests
             {
                 AccessToken = "access-token",
                 RefreshToken = "refresh-token",
-                Scope = "https://www.googleapis.com/auth/drive.readonly",
+                Scope = "https://www.googleapis.com/auth/drive.file",
                 ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
             });
             using (var httpClient = new HttpClient(new GoogleRevocationHttpHandler()))
@@ -295,7 +295,7 @@ namespace CloudSource.Playnite.Tests
                     broadTokenStore,
                     new GoogleOAuthClientCredentials("client-id", "client-secret"));
                 Assert(!connection.HasStoredAuthorization,
-                    "A legacy restricted Google authorization was accepted as folder-scoped.");
+                    "A per-file Google authorization was accepted for recursive folder discovery.");
             }
         }
 

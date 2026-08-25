@@ -32,6 +32,7 @@ a:hover { color: white; }
 .site-header { min-height: 88px; }
 .brand { display: flex; align-items: center; gap: .8rem; color: var(--text); font-weight: 750; text-decoration: none; }
 .brand img { border-radius: 12px; }
+.brand small { display: block; color: var(--muted); font-size: .72rem; font-weight: 650; letter-spacing: .04em; }
 nav { display: flex; flex-wrap: wrap; gap: 1.25rem; }
 nav a { color: var(--muted); text-decoration: none; }
 nav a[aria-current="page"], nav a:hover { color: var(--text); }
@@ -59,6 +60,8 @@ main { width: min(calc(100% - 2rem), var(--max)); margin: 0 auto; }
 .cards p, .split p, .document p, .document li { color: var(--muted); }
 .number { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border-radius: 50%; background: #19395f; color: var(--accent); font-weight: 800; }
 .split { display: grid; grid-template-columns: .9fr 1.1fr; gap: 4rem; }
+.identity { display: grid; grid-template-columns: .9fr 1.1fr; gap: 4rem; }
+.identity p { color: var(--muted); }
 .callout { display: flex; align-items: center; justify-content: space-between; gap: 2rem; margin: 4rem 0; }
 .callout h2 { margin-top: 0; }
 code { padding: .15rem .35rem; border-radius: 4px; background: #07101d; color: #9be6ff; }
@@ -72,6 +75,6 @@ footer { min-height: 120px; border-top: 1px solid var(--border); color: var(--mu
   .site-header, footer { align-items: flex-start; flex-direction: column; padding: 1.25rem 0; }
   .hero { min-height: auto; grid-template-columns: 1fr; gap: 2rem; padding: 4rem 0; }
   .hero-icon { grid-row: 1; width: 150px; justify-self: start; }
-  .cards, .split { grid-template-columns: 1fr; gap: 1rem; }
+  .cards, .split, .identity { grid-template-columns: 1fr; gap: 1rem; }
   .callout { align-items: flex-start; flex-direction: column; }
 }

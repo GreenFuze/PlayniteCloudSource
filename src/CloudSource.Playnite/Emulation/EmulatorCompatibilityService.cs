@@ -1,5 +1,6 @@
 using CloudSource.Playnite.GameImport;
 using CloudSource.Playnite.Installation;
+using CloudSource.Playnite.Providers;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 using System;
@@ -17,6 +18,7 @@ namespace CloudSource.Playnite.Emulation
         public string EmulatorName { get; }
         public string EmulatorProfileId { get; }
         public string EmulatorProfileName { get; }
+        public string ImageExtension { get; }
         public string AdditionalArguments { get; }
 
         public string DisplayName => $"{EmulatorName} — {EmulatorProfileName}";
@@ -28,6 +30,7 @@ namespace CloudSource.Playnite.Emulation
             string emulatorName,
             string emulatorProfileId,
             string emulatorProfileName,
+            string imageExtension,
             string additionalArguments)
         {
             PlatformName = Required(platformName, nameof(platformName));
@@ -36,6 +39,7 @@ namespace CloudSource.Playnite.Emulation
             EmulatorName = Required(emulatorName, nameof(emulatorName));
             EmulatorProfileId = Required(emulatorProfileId, nameof(emulatorProfileId));
             EmulatorProfileName = Required(emulatorProfileName, nameof(emulatorProfileName));
+            ImageExtension = Required(imageExtension, nameof(imageExtension)).TrimStart('.').ToLowerInvariant();
             AdditionalArguments = additionalArguments;
         }
 
@@ -60,17 +64,19 @@ namespace CloudSource.Playnite.Emulation
         public IReadOnlyList<EmulatorInstallPlan> FindCompatibleProfiles(
             Game game,
             CloudGameClassification classification,
-            string sourceFileName)
+            SourcePackage package)
         {
             if (game == null) throw new ArgumentNullException(nameof(game));
             if (classification == null) throw new ArgumentNullException(nameof(classification));
+            if (package == null) throw new ArgumentNullException(nameof(package));
             if (classification.ContentKind != CloudContentKind.Rom)
                 throw new InvalidOperationException("Emulator compatibility can only be evaluated for ROM content.");
 
             var platform = ResolvePlatform(classification);
-            var extension = NormalizeExtension(Path.GetExtension(sourceFileName));
-            if (string.IsNullOrWhiteSpace(extension))
+            var extensions = GetCandidateExtensions(package);
+            if (extensions.Count == 0)
                 throw new InvalidDataException("The ROM file has no extension to match against an emulator profile.");
+            var requireDeclaredExtension = SourcePackage.IsDirectoryPackage(package.Kind);
 
             var databasePlatform = database.Platforms.FirstOrDefault(candidate =>
                 string.Equals(candidate.SpecificationId, platform.Id, StringComparison.OrdinalIgnoreCase) ||
@@ -78,8 +84,8 @@ namespace CloudSource.Playnite.Emulation
             var matches = new List<EmulatorInstallPlan>();
             foreach (var emulator in database.Emulators)
             {
-                AddBuiltInMatches(matches, emulator, platform, extension);
-                AddCustomMatches(matches, emulator, databasePlatform, platform, extension);
+                AddBuiltInMatches(matches, emulator, platform, extensions, requireDeclaredExtension);
+                AddCustomMatches(matches, emulator, databasePlatform, platform, extensions, requireDeclaredExtension);
             }
 
             return matches
@@ -135,6 +141,7 @@ namespace CloudSource.Playnite.Emulation
                 emulator.Name,
                 profile.Id,
                 profile.Name,
+                NormalizeExtension(Path.GetExtension(manifest.RomTarget)),
                 string.Equals(emulator.BuiltInConfigId, "mame", StringComparison.OrdinalIgnoreCase)
                     ? "-rompath \"{ImageDir}\""
                     : null);
@@ -163,7 +170,8 @@ namespace CloudSource.Playnite.Emulation
             ICollection<EmulatorInstallPlan> matches,
             Emulator emulator,
             EmulatedPlatform platform,
-            string extension)
+            IReadOnlyList<string> extensions,
+            bool requireDeclaredExtension)
         {
             if (string.IsNullOrWhiteSpace(emulator.BuiltInConfigId)) return;
             var definition = emulationApi.GetEmulator(emulator.BuiltInConfigId);
@@ -172,9 +180,12 @@ namespace CloudSource.Playnite.Emulation
             {
                 var profileDefinition = definition.Profiles?.FirstOrDefault(candidate =>
                     string.Equals(candidate.Name, profile.BuiltInProfileName, StringComparison.Ordinal));
+                var extension = profileDefinition == null
+                    ? null
+                    : FindSupportedExtension(profileDefinition.ImageExtensions, extensions, requireDeclaredExtension);
                 if (profileDefinition == null ||
                     profileDefinition.Platforms?.Contains(platform.Id) != true ||
-                    !SupportsExtension(profileDefinition.ImageExtensions, extension))
+                    extension == null)
                 {
                     continue;
                 }
@@ -186,6 +197,7 @@ namespace CloudSource.Playnite.Emulation
                     emulator.Name,
                     profile.Id,
                     profile.Name,
+                    extension,
                     string.Equals(definition.Id, "mame", StringComparison.OrdinalIgnoreCase)
                         ? "-rompath \"{ImageDir}\""
                         : null));
@@ -197,13 +209,14 @@ namespace CloudSource.Playnite.Emulation
             Emulator emulator,
             Platform databasePlatform,
             EmulatedPlatform platform,
-            string extension)
+            IReadOnlyList<string> extensions,
+            bool requireDeclaredExtension)
         {
             if (databasePlatform == null) return;
             foreach (var profile in emulator.CustomProfiles ?? new System.Collections.ObjectModel.ObservableCollection<CustomEmulatorProfile>())
             {
-                if (profile.Platforms?.Contains(databasePlatform.Id) != true ||
-                    !SupportsExtension(profile.ImageExtensions, extension))
+                var extension = FindSupportedExtension(profile.ImageExtensions, extensions, requireDeclaredExtension);
+                if (profile.Platforms?.Contains(databasePlatform.Id) != true || extension == null)
                 {
                     continue;
                 }
@@ -215,15 +228,39 @@ namespace CloudSource.Playnite.Emulation
                     emulator.Name,
                     profile.Id,
                     profile.Name,
+                    extension,
                     null));
             }
         }
 
-        private static bool SupportsExtension(IEnumerable<string> supportedExtensions, string extension)
+        private static string FindSupportedExtension(
+            IEnumerable<string> supportedExtensions,
+            IReadOnlyList<string> candidates,
+            bool requireDeclaredExtension)
         {
-            return supportedExtensions == null || !supportedExtensions.Any() ||
-                supportedExtensions.Any(candidate =>
-                    string.Equals(NormalizeExtension(candidate), extension, StringComparison.OrdinalIgnoreCase));
+            var supported = supportedExtensions?
+                .Select(NormalizeExtension)
+                .Where(extension => !string.IsNullOrWhiteSpace(extension))
+                .ToList() ?? new List<string>();
+            if (supported.Count == 0) return requireDeclaredExtension ? null : candidates.FirstOrDefault();
+            return candidates.FirstOrDefault(candidate =>
+                supported.Any(extension => string.Equals(extension, candidate, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private static IReadOnlyList<string> GetCandidateExtensions(SourcePackage package)
+        {
+            switch (package.Kind)
+            {
+                case SourcePackageKind.ScummVmDirectory:
+                    return new[] { "scummvm" };
+                case SourcePackageKind.MsDosDirectory:
+                    return new[] { "jsdos" };
+                default:
+                    var extension = NormalizeExtension(Path.GetExtension(package.DisplayName));
+                    return string.IsNullOrWhiteSpace(extension)
+                        ? Array.Empty<string>()
+                        : new[] { extension };
+            }
         }
 
         private static string NormalizeExtension(string extension)

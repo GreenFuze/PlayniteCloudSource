@@ -38,21 +38,23 @@ namespace CloudSource.Playnite.Providers.OneDrive
                 throw new InvalidOperationException("The scan request does not belong to the configured OneDrive account.");
 
             var accessToken = await connectionService.GetAccessTokenAsync(configuration, cancellationToken).ConfigureAwait(false);
-            var packages = new List<SourcePackage>();
+            var files = new List<CloudFileEntry>();
             var visitedFolders = new HashSet<string>(StringComparer.Ordinal);
             foreach (var location in request.Locations)
             {
                 await ScanFolderAsync(
                     accessToken,
-                    configuration.AccountId,
                     RequiredObjectId(location.ObjectId),
                     location.DisplayPath,
                     location.Recursive,
                     visitedFolders,
-                    packages,
+                    files,
                     cancellationToken).ConfigureAwait(false);
             }
-            return packages.OrderBy(package => package.LogicalPath, StringComparer.OrdinalIgnoreCase).ToList();
+            return packageDiscovery
+                .Discover(OneDriveProvider.ProviderId, configuration.AccountId, files)
+                .OrderBy(package => package.LogicalPath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         public Task<Stream> OpenReadAsync(
@@ -124,12 +126,11 @@ namespace CloudSource.Playnite.Providers.OneDrive
 
         private async Task ScanFolderAsync(
             string accessToken,
-            string accountId,
             string folderId,
             string displayPath,
             bool recursive,
             ISet<string> visitedFolders,
-            ICollection<SourcePackage> packages,
+            ICollection<CloudFileEntry> files,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -143,17 +144,15 @@ namespace CloudSource.Playnite.Providers.OneDrive
                 {
                     await ScanFolderAsync(
                         accessToken,
-                        accountId,
                         folder.Id,
                         CombineLogicalPath(displayPath, folder.Name),
                         true,
                         visitedFolders,
-                        packages,
+                        files,
                         cancellationToken).ConfigureAwait(false);
                 }
             }
 
-            var files = new List<CloudFileEntry>();
             foreach (var item in items.Where(candidate => candidate.File != null))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -167,8 +166,6 @@ namespace CloudSource.Playnite.Providers.OneDrive
                     item.Size,
                     ParseModifiedAt(logicalPath, item.LastModifiedDateTime)));
             }
-            foreach (var package in packageDiscovery.Discover(OneDriveProvider.ProviderId, accountId, files))
-                packages.Add(package);
         }
 
         private async Task<IReadOnlyList<OneDriveItem>> ListChildrenAsync(

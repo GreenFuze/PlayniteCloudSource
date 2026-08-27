@@ -41,6 +41,13 @@ namespace CloudSource.Playnite.Installation
 
             var logicalPath = game.Description.Substring(DescriptionPrefix.Length).Trim();
             var displayName = Path.GetFileName(logicalPath);
+            if (CloudPackageDiscovery.TryGetDirectoryPackageKind(logicalPath, out _))
+            {
+                throw new InvalidOperationException(
+                    $"Cloud Storage is still loading the directory package details for '{game.Name}'. " +
+                    "Wait for the current library update to finish, then try Install again.");
+            }
+
             return new SourcePackage(
                 identity[0], identity[1], identity[2],
                 string.IsNullOrWhiteSpace(game.Version) ? "unknown" : game.Version,

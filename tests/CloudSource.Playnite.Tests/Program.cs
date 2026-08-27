@@ -35,6 +35,8 @@ namespace CloudSource.Playnite.Tests
                 ClassifiesEmulatedPlatformPackages();
                 RejectsCrossProviderScanResults();
                 DiscoversPackagesIdenticallyAcrossProviders();
+                DiscoversScummVmAndMsDosDirectories();
+                DirectoryPackageResolverFailsClearlyBeforeCatalogLoad();
                 ScansAndDownloadsOneDrivePackages();
                 RejectsForeignOneDrivePagingLinks();
                 RevokesGoogleAuthorizationOnDisconnect();
@@ -42,6 +44,7 @@ namespace CloudSource.Playnite.Tests
                 UsesReadOnlyGoogleAuthorization();
                 BrowsesGoogleDriveFoldersInsidePlaynite();
                 InstallsRomWithoutExtraction(root);
+                InstallsScummVmDirectory(root);
                 ReportsInstallationPhases(root);
                 InstallsArchivedInnoPackage(root);
                 InstallsStandaloneInnoBundle(root);
@@ -78,12 +81,16 @@ namespace CloudSource.Playnite.Tests
 
             foreach (SourcePackageKind kind in Enum.GetValues(typeof(SourcePackageKind)))
             {
-                if (kind == SourcePackageKind.InnoInstallerBundle || kind == SourcePackageKind.RomFile) continue;
+                if (kind == SourcePackageKind.InnoInstallerBundle ||
+                    kind == SourcePackageKind.RomFile ||
+                    SourcePackage.IsDirectoryPackage(kind)) continue;
                 Assert(registry.Supports(kind), $"Archive kind '{kind}' has no registered installer.");
             }
 
             Assert(!registry.Supports(SourcePackageKind.InnoInstallerBundle), "Native installer bundles must not use an archive extractor.");
             Assert(!registry.Supports(SourcePackageKind.RomFile), "ROM files must not use an archive extractor.");
+            Assert(!registry.Supports(SourcePackageKind.ScummVmDirectory), "ScummVM directories must not use an archive extractor.");
+            Assert(!registry.Supports(SourcePackageKind.MsDosDirectory), "MS-DOS directories must not use an archive extractor.");
         }
 
         private static void ClassifiesEmulatedPlatformPackages()
@@ -105,6 +112,13 @@ namespace CloudSource.Playnite.Tests
             var atari = classifier.Classify("My Drive/Games/Platforms/Atari 2600/game.a26");
             Assert(atari.ContentKind == CloudContentKind.Rom, "An ordinary path-classified ROM was not recognized.");
             Assert(atari.PlatformName == "Atari 2600", "Unknown platform folder name was not preserved for Playnite lookup.");
+
+            var scummVm = classifier.Classify("My Drive/Games/Platforms/ScummVM/Discworld");
+            Assert(scummVm.ContentKind == CloudContentKind.Rom && scummVm.PlatformSpecificationId == "pc_dos",
+                "ScummVM directory was not mapped to Playnite's DOS emulation platform.");
+            var msDos = classifier.Classify("My Drive/Games/Platforms/MS-DOS/Bonus");
+            Assert(msDos.ContentKind == CloudContentKind.Rom && msDos.PlatformSpecificationId == "pc_dos",
+                "MS-DOS directory was not mapped to Playnite's DOS emulation platform.");
         }
 
         private static void RejectsCrossProviderScanResults()
@@ -148,6 +162,55 @@ namespace CloudSource.Playnite.Tests
             var installer = oneDrive.Single(package => package.Kind == SourcePackageKind.InnoInstallerBundle);
             Assert(installer.Files.Count == 2 && installer.SizeBytes == 50, "OneDrive installer companions were not grouped.");
             Assert(oneDrive.Any(package => package.Kind == SourcePackageKind.RomFile), "OneDrive ROM package was not discovered.");
+        }
+
+        private static void DiscoversScummVmAndMsDosDirectories()
+        {
+            var files = new[]
+            {
+                new CloudFileEntry("disc-map", "r1", "My Drive/Games/Platforms/ScummVM/Discworld/DW2.SCN", "DW2.SCN", 11, null),
+                new CloudFileEntry("disc-audio", "r2", "My Drive/Games/Platforms/ScummVM/Discworld/AUDIO/MUSIC.SMP", "MUSIC.SMP", 12, null),
+                new CloudFileEntry("disc-zip", "r3", "My Drive/Games/Platforms/ScummVM/Discworld/EXTRA.ZIP", "EXTRA.ZIP", 13, null),
+                new CloudFileEntry("brain-map", "r3b", "My Drive/Games/Platforms/ScummVM/Castle of Dr. Brain (CD DOS)/RESOURCE.MAP", "RESOURCE.MAP", 7, null),
+                new CloudFileEntry("bonus-exe", "r4", "My Drive/Games/Platforms/MS-DOS/Bonus/BONUS.EXE", "BONUS.EXE", 14, null),
+                new CloudFileEntry("bonus-data", "r5", "My Drive/Games/Platforms/MS-DOS/Bonus/DATA/LEVEL1.DAT", "LEVEL1.DAT", 15, null)
+            };
+
+            var packages = new CloudPackageDiscovery().Discover("google-drive", "account", files);
+            Assert(packages.Count == 3, "Directory games were split into individual file packages.");
+            var discworld = packages.Single(package =>
+                package.Kind == SourcePackageKind.ScummVmDirectory && package.DisplayName == "Discworld");
+            Assert(discworld.DisplayName == "Discworld" && discworld.Files.Count == 3 && discworld.SizeBytes == 36,
+                "ScummVM directory contents were not grouped recursively.");
+            Assert(discworld.LogicalPath == "My Drive/Games/Platforms/ScummVM/Discworld",
+                "ScummVM directory root was not preserved.");
+            var brain = packages.Single(package => package.DisplayName == "Castle of Dr. Brain (CD DOS)");
+            Assert(CloudGameMetadataFactory.GetRawTitle(brain) == "Castle of Dr. Brain (CD DOS)",
+                "A period in a directory game title was mistaken for a file extension.");
+            var bonus = packages.Single(package => package.Kind == SourcePackageKind.MsDosDirectory);
+            Assert(bonus.DisplayName == "Bonus" && bonus.Files.Count == 2 && bonus.SizeBytes == 29,
+                "MS-DOS directory contents were not grouped recursively.");
+        }
+
+        private static void DirectoryPackageResolverFailsClearlyBeforeCatalogLoad()
+        {
+            var game = new Game
+            {
+                GameId = "google-drive:account:directory-id",
+                Name = "Discworld",
+                Description = "Cloud archive: My Drive/Games/Platforms/ScummVM/Discworld"
+            };
+
+            try
+            {
+                new CloudPackageResolver(new SourcePackageCatalog()).Resolve(game);
+                throw new InvalidOperationException("An unloaded directory package was reconstructed without its file catalog.");
+            }
+            catch (InvalidOperationException exception)
+            {
+                Assert(exception.Message.Contains("library update"),
+                    "The unloaded directory package error does not tell the user how to recover.");
+            }
         }
 
         private static void ScansAndDownloadsOneDrivePackages()
@@ -378,6 +441,7 @@ namespace CloudSource.Playnite.Tests
                 "MAME",
                 "mame-default",
                 "Default",
+                "zip",
                 "-rompath \"{ImageDir}\"");
             var updates = new List<InstallationProgressUpdate>();
 
@@ -399,6 +463,53 @@ namespace CloudSource.Playnite.Tests
             Assert(action.Type == GameActionType.Emulator, "ROM action does not use Playnite's emulator action type.");
             Assert(action.EmulatorId == emulatorId && action.EmulatorProfileId == "mame-default", "ROM action does not target the selected emulator profile.");
             Assert(action.AdditionalArguments == "-rompath \"{ImageDir}\"", "MAME ROM directory argument is missing.");
+        }
+
+        private static void InstallsScummVmDirectory(string root)
+        {
+            var contents = new Dictionary<string, byte[]>
+            {
+                ["disc-map"] = Encoding.ASCII.GetBytes("scene-data"),
+                ["disc-audio"] = Encoding.ASCII.GetBytes("music-data")
+            };
+            var package = new CloudPackageDiscovery().Discover(
+                "test-provider",
+                "account",
+                new[]
+                {
+                    new CloudFileEntry("disc-map", "r1", "Games/Platforms/ScummVM/Discworld/DW2.SCN", "DW2.SCN", contents["disc-map"].Length, null),
+                    new CloudFileEntry("disc-audio", "r2", "Games/Platforms/ScummVM/Discworld/AUDIO/MUSIC.SMP", "MUSIC.SMP", contents["disc-audio"].Length, null)
+                }).Single();
+            var managedRoot = Path.Combine(root, "scummvm-directory-managed");
+            Assert(ManagedStorageLayout.TryCreate(managedRoot, out var layout, out var error), error);
+            var manifestStore = new InstallationManifestStore(() => layout);
+            var installer = new ManagedRomInstaller(
+                () => layout,
+                new ProviderRegistry(new ICloudSourceProvider[] { new PackageFileProvider(contents) }),
+                manifestStore);
+            var plan = new EmulatorInstallPlan(
+                "PC (DOS)",
+                "pc_dos",
+                Guid.NewGuid(),
+                "Web Emulator",
+                "scummvm.dos",
+                "PC (DOS) — ScummVM",
+                "scummvm",
+                null);
+
+            var record = installer.Install(package, "Discworld", plan, null, CancellationToken.None);
+            Assert(File.ReadAllBytes(Path.Combine(record.InstallDirectory, "DW2.SCN")).SequenceEqual(contents["disc-map"]),
+                "ScummVM root file was not installed.");
+            Assert(File.ReadAllBytes(Path.Combine(record.InstallDirectory, "AUDIO", "MUSIC.SMP")).SequenceEqual(contents["disc-audio"]),
+                "ScummVM nested file was not installed.");
+            Assert(File.Exists(Path.Combine(record.InstallDirectory, "launch.scummvm")),
+                "ScummVM launch marker was not created.");
+            Assert(record.Manifest.InstallKind == "managed_game_directory" && record.Manifest.RomTarget == "launch.scummvm",
+                "ScummVM directory manifest does not describe its launch marker.");
+            Assert(manifestStore.Find(package.StableId)?.InstallDirectory == record.InstallDirectory,
+                "A completed ScummVM directory installation was not restored from its manifest.");
+            Assert(!Directory.EnumerateFileSystemEntries(layout.StagingPath).Any(),
+                "ScummVM directory installation left staging files behind.");
         }
 
         private static void ReportsInstallationPhases(string root)

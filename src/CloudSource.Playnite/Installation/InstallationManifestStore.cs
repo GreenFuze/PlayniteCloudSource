@@ -85,9 +85,7 @@ namespace CloudSource.Playnite.Installation
                 return false;
             }
 
-            var contentTarget = string.Equals(manifest.InstallKind, "managed_rom", StringComparison.Ordinal)
-                ? manifest.RomTarget
-                : manifest.LaunchTarget;
+            var contentTarget = manifest.ContentTarget;
             if (string.IsNullOrWhiteSpace(contentTarget)) return false;
 
             var launchPath = Path.GetFullPath(Path.Combine(directory, contentTarget));

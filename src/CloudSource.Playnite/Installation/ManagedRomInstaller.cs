@@ -39,6 +39,15 @@ namespace CloudSource.Playnite.Installation
             if (emulatorPlan == null) throw new ArgumentNullException(nameof(emulatorPlan));
             var existing = manifestStore.Find(package.StableId);
             if (existing != null) return existing;
+            if (SourcePackage.IsDirectoryPackage(package.Kind))
+            {
+                return InstallDirectoryPackage(
+                    package,
+                    gameName,
+                    emulatorPlan,
+                    reportProgress,
+                    cancellationToken);
+            }
 
             var primary = package.Files.Single(file => file.Role == SourcePackageFileRole.Primary);
             if (Path.GetFileName(primary.DisplayName) != primary.DisplayName)
@@ -85,6 +94,163 @@ namespace CloudSource.Playnite.Installation
             {
                 if (Directory.Exists(stageRoot)) Directory.Delete(stageRoot, true);
             }
+        }
+
+        private InstallationRecord InstallDirectoryPackage(
+            SourcePackage package,
+            string gameName,
+            EmulatorInstallPlan emulatorPlan,
+            Action<InstallationProgressUpdate> reportProgress,
+            CancellationToken cancellationToken)
+        {
+            if (package.Files.Count == 0)
+                throw new InvalidDataException("A directory game package contains no files.");
+
+            var layout = layoutFactory();
+            layout.EnsureCreated();
+            var destination = SelectDestination(layout.GamesPath, gameName, package.StableId);
+            var stageRoot = Path.Combine(layout.StagingPath, "directory-" + Guid.NewGuid().ToString("N"));
+            var contentRoot = Path.Combine(stageRoot, "content");
+            Directory.CreateDirectory(contentRoot);
+            try
+            {
+                var download = DownloadDirectory(
+                    package,
+                    contentRoot,
+                    reportProgress,
+                    cancellationToken);
+                var markerName = "launch." + emulatorPlan.ImageExtension;
+                var markerBytes = Encoding.UTF8.GetBytes(
+                    package.Kind == SourcePackageKind.ScummVmDirectory
+                        ? "playnite-web-emulator-scummvm-directory-v1\n"
+                        : "playnite-web-emulator-jsdos-directory-v1\n");
+                File.WriteAllBytes(Path.Combine(contentRoot, markerName), markerBytes);
+                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 0, 1));
+                var manifest = new InstallManifest
+                {
+                    SchemaVersion = 3,
+                    GameId = package.StableId,
+                    GameName = gameName,
+                    ProviderId = package.ProviderId,
+                    AccountId = package.AccountId,
+                    ObjectId = package.ObjectId,
+                    Revision = package.Revision,
+                    LogicalPath = package.LogicalPath,
+                    ArchiveSha256 = download.Sha256,
+                    ArchiveSizeBytes = download.SizeBytes,
+                    InstalledSizeBytes = checked(download.SizeBytes + markerBytes.Length),
+                    InstallKind = "managed_game_directory",
+                    RomTarget = markerName,
+                    PlatformSpecificationId = emulatorPlan.PlatformSpecificationId,
+                    EmulatorId = emulatorPlan.EmulatorId.ToString("D"),
+                    EmulatorProfileId = emulatorPlan.EmulatorProfileId,
+                    InstalledAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture)
+                };
+                manifestStore.Write(contentRoot, manifest);
+                Directory.Move(contentRoot, destination);
+                Logger.Info($"Cloud Storage directory installation completed for '{gameName}' at '{destination}'.");
+                reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Finalizing, 1, 1));
+                return new InstallationRecord(destination, manifest);
+            }
+            finally
+            {
+                if (Directory.Exists(stageRoot)) Directory.Delete(stageRoot, true);
+            }
+        }
+
+        private DownloadResult DownloadDirectory(
+            SourcePackage package,
+            string contentRoot,
+            Action<InstallationProgressUpdate> reportProgress,
+            CancellationToken cancellationToken)
+        {
+            var provider = providerRegistry.GetRequired(package.ProviderId);
+            var orderedFiles = package.Files
+                .OrderBy(file => file.LogicalPath, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(file => file.ObjectId, StringComparer.Ordinal)
+                .ToList();
+            var total = package.SizeBytes;
+            long completed = 0;
+            long nextReport = 4L * 1024 * 1024;
+            reportProgress?.Invoke(new InstallationProgressUpdate(InstallationProgressStage.Downloading, 0, total));
+            using (var aggregateHash = SHA256.Create())
+            {
+                foreach (var file in orderedFiles)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var relativePath = ResolveDirectoryRelativePath(package.LogicalPath, file.LogicalPath);
+                    var destination = Path.Combine(contentRoot, relativePath);
+                    var parent = Path.GetDirectoryName(destination);
+                    if (!string.IsNullOrWhiteSpace(parent)) Directory.CreateDirectory(parent);
+                    var pathBytes = Encoding.UTF8.GetBytes(relativePath.Replace('\\', '/').ToLowerInvariant() + "\0");
+                    aggregateHash.TransformBlock(pathBytes, 0, pathBytes.Length, null, 0);
+                    long fileSize = 0;
+                    using (var input = provider.OpenReadFileAsync(package, file, cancellationToken).GetAwaiter().GetResult())
+                    using (var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        var buffer = new byte[128 * 1024];
+                        int read;
+                        while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            output.Write(buffer, 0, read);
+                            aggregateHash.TransformBlock(buffer, 0, read, null, 0);
+                            fileSize += read;
+                            completed += read;
+                            if (completed >= nextReport)
+                            {
+                                reportProgress?.Invoke(new InstallationProgressUpdate(
+                                    InstallationProgressStage.Downloading,
+                                    completed,
+                                    total));
+                                nextReport = completed + (4L * 1024 * 1024);
+                            }
+                        }
+                    }
+
+                    if (file.SizeBytes != fileSize)
+                        throw new InvalidDataException(
+                            $"Downloaded file size mismatch for '{file.LogicalPath}': expected {file.SizeBytes}, received {fileSize}.");
+                }
+
+                aggregateHash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                reportProgress?.Invoke(new InstallationProgressUpdate(
+                    InstallationProgressStage.Downloading,
+                    completed,
+                    total));
+                if (total != completed)
+                    throw new InvalidDataException($"Downloaded directory size mismatch: expected {total}, received {completed}.");
+                return new DownloadResult(
+                    completed,
+                    BitConverter.ToString(aggregateHash.Hash).Replace("-", string.Empty).ToLowerInvariant());
+            }
+        }
+
+        private static string ResolveDirectoryRelativePath(string rootPath, string filePath)
+        {
+            var normalizedRoot = NormalizeLogicalPath(rootPath).TrimEnd('/');
+            var normalizedFile = NormalizeLogicalPath(filePath);
+            var prefix = normalizedRoot + "/";
+            if (!normalizedFile.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"Directory package file is outside its game root: {filePath}");
+            var segments = normalizedFile.Substring(prefix.Length)
+                .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+                throw new InvalidDataException($"Directory package file has no relative path: {filePath}");
+            foreach (var segment in segments)
+            {
+                if (segment == "." || segment == ".." ||
+                    segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                    throw new InvalidDataException($"Directory package contains an unsafe path segment: {filePath}");
+            }
+            return Path.Combine(segments);
+        }
+
+        private static string NormalizeLogicalPath(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidDataException("Directory package path is missing.");
+            return value.Trim().Replace('\\', '/').Trim('/');
         }
 
         private DownloadResult Download(

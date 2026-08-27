@@ -362,7 +362,7 @@ namespace CloudSource.Playnite
                 var installation = manifestStore.Find(game.GameId, game.InstallDirectory);
                 if (installation == null) continue;
                 var changed = false;
-                if (string.Equals(installation.Manifest.InstallKind, "managed_rom", StringComparison.Ordinal))
+                if (installation.Manifest.UsesEmulator)
                 {
                     if (emulatorCompatibility.TryRestorePlan(installation.Manifest, out var emulatorPlan))
                     {

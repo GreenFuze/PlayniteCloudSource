@@ -63,6 +63,10 @@ namespace CloudSource.Playnite.GameImport
                 ["game gear"] = new PlatformIdentity("Sega Game Gear", "sega_gamegear"),
                 ["sega32x"] = new PlatformIdentity("Sega 32X", "sega_32x"),
                 ["32x"] = new PlatformIdentity("Sega 32X", "sega_32x"),
+                ["scummvm"] = new PlatformIdentity("PC (DOS)", "pc_dos"),
+                ["ms-dos"] = new PlatformIdentity("PC (DOS)", "pc_dos"),
+                ["ms dos"] = new PlatformIdentity("PC (DOS)", "pc_dos"),
+                ["msdos"] = new PlatformIdentity("PC (DOS)", "pc_dos"),
                 ["windows"] = new PlatformIdentity("PC (Windows)", "pc_windows"),
                 ["windows pc"] = new PlatformIdentity("PC (Windows)", "pc_windows"),
                 ["pc (windows)"] = new PlatformIdentity("PC (Windows)", "pc_windows")

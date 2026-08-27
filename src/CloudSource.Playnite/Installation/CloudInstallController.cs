@@ -136,12 +136,12 @@ namespace CloudSource.Playnite.Installation
 
         private EmulatorInstallPlan SelectEmulatorPlan(CloudGameClassification classification)
         {
-            var candidates = emulatorCompatibility.FindCompatibleProfiles(Game, classification, package.DisplayName);
+            var candidates = emulatorCompatibility.FindCompatibleProfiles(Game, classification, package);
             if (candidates.Count == 0)
             {
                 playniteApi.Dialogs.ShowMessage(
                     $"{Game.Name} requires an emulator for {classification.PlatformName}, but Playnite has no configured " +
-                    $"profile for .{System.IO.Path.GetExtension(package.DisplayName).TrimStart('.')} files.\n\n" +
+                    $"profile for {DescribeEmulatorInput(package)}.\n\n" +
                     "Configure an emulator in Playnite's Emulators settings, then try Install again. Nothing was downloaded.",
                     "Emulator required",
                     System.Windows.MessageBoxButton.OK,
@@ -170,6 +170,17 @@ namespace CloudSource.Playnite.Installation
             var selectedIndex = options.IndexOf(selected);
             if (selectedIndex < 0) throw new InvalidOperationException("Playnite returned an unknown emulator selection.");
             return candidates[selectedIndex];
+        }
+
+        private static string DescribeEmulatorInput(SourcePackage sourcePackage)
+        {
+            switch (sourcePackage.Kind)
+            {
+                case SourcePackageKind.ScummVmDirectory: return ".scummvm game directories";
+                case SourcePackageKind.MsDosDirectory: return ".jsdos game directories";
+                default:
+                    return "." + System.IO.Path.GetExtension(sourcePackage.DisplayName).TrimStart('.') + " files";
+            }
         }
 
         internal static void UpdateProgress(

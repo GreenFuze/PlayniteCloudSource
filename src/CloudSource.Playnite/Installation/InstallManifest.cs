@@ -53,6 +53,12 @@ namespace CloudSource.Playnite.Installation
         public string EmulatorId { get; set; }
         [DataMember(Order = 23, EmitDefaultValue = false)]
         public string EmulatorProfileId { get; set; }
+
+        public bool UsesEmulator =>
+            string.Equals(InstallKind, "managed_rom", StringComparison.Ordinal) ||
+            string.Equals(InstallKind, "managed_game_directory", StringComparison.Ordinal);
+
+        public string ContentTarget => UsesEmulator ? RomTarget : LaunchTarget;
     }
 
     internal sealed class InstallationRecord

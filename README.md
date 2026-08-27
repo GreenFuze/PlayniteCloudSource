@@ -30,6 +30,7 @@ staging data, and manifests stay together below one managed storage directory.
 - ZIP, 7z, and RAR game archives.
 - Standalone installers and installer bundles inside archives.
 - Common cartridge and arcade ROM formats.
+- Recursive ScummVM and MS-DOS game directories.
 - Download and extraction progress with cancellation and duplicate-install
   protection.
 - Safe archive extraction with traversal, link, encryption, and size checks.
@@ -68,6 +69,7 @@ provider removes its local authorization; it does not modify the cloud account.
 | Installer archive | Extracted, then the contained installer runs interactively. Files left by its uninstaller are preserved. |
 | Standalone installer bundle | The setup executable and adjacent payload files are downloaded together before setup starts. |
 | ROM | Copied byte-for-byte without extraction and attached to a compatible Playnite emulator profile. |
+| ScummVM or MS-DOS directory | Downloaded recursively into one managed game directory and attached to a compatible Playnite emulator profile through a local launch marker. |
 
 Cloud packages are authoritative only after a successful provider scan. A
 missing uninstalled package is removed from the library; an installed game is
@@ -97,7 +99,7 @@ See the full [privacy policy](https://greenfuze.github.io/PlayniteCloudSource/pr
 - OneDrive currently browses the account's **My files** drive; shared items and
   SharePoint document libraries need explicit drive-identity support.
 - Password-protected and multi-volume archives are rejected.
-- Multi-file disc sets, ScummVM directories, BIOS/firmware, and shared emulator
+- Multi-file disc sets, BIOS/firmware, and shared emulator
   dependencies need separate content strategies.
 - Arcade filenames that use MAME machine IDs need a dedicated MAME DAT metadata
   provider; that does not belong in this storage plugin.

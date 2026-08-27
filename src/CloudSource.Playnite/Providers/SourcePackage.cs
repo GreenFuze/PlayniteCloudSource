@@ -10,7 +10,9 @@ namespace CloudSource.Playnite.Providers
         SevenZipArchive,
         RarArchive,
         InnoInstallerBundle,
-        RomFile
+        RomFile,
+        ScummVmDirectory,
+        MsDosDirectory
     }
 
     public enum SourcePackageFileRole
@@ -108,15 +110,23 @@ namespace CloudSource.Playnite.Providers
                 throw new ArgumentException("A source package must contain files.", nameof(files));
             }
 
-            if (packageFiles.Count(file => file.Role == SourcePackageFileRole.Primary) != 1 ||
+            if (packageFiles.Count(file => file.Role == SourcePackageFileRole.Primary) != 1)
+            {
+                throw new ArgumentException("A source package must identify exactly one primary file.", nameof(files));
+            }
+
+            if (!IsDirectoryPackage(kind) &&
                 !packageFiles.Any(file => file.Role == SourcePackageFileRole.Primary &&
                     string.Equals(file.ObjectId, ObjectId, StringComparison.Ordinal)))
             {
-                throw new ArgumentException("A source package must identify exactly one matching primary file.", nameof(files));
+                throw new ArgumentException("A file package primary file must match the package object ID.", nameof(files));
             }
 
             Files = packageFiles.AsReadOnly();
         }
+
+        public static bool IsDirectoryPackage(SourcePackageKind kind) =>
+            kind == SourcePackageKind.ScummVmDirectory || kind == SourcePackageKind.MsDosDirectory;
 
         private static string Required(string value, string parameterName)
         {

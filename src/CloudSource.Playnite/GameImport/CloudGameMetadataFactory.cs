@@ -30,7 +30,7 @@ namespace CloudSource.Playnite.GameImport
                 throw new ArgumentNullException(nameof(package));
             }
 
-            var rawTitle = Path.GetFileNameWithoutExtension(package.DisplayName);
+            var rawTitle = GetRawTitle(package);
             if (string.IsNullOrWhiteSpace(rawTitle))
             {
                 throw new InvalidDataException($"Cloud package '{package.StableId}' has no usable game name.");
@@ -58,6 +58,14 @@ namespace CloudSource.Playnite.GameImport
             }
 
             return metadata;
+        }
+
+        internal static string GetRawTitle(SourcePackage package)
+        {
+            if (package == null) throw new ArgumentNullException(nameof(package));
+            return SourcePackage.IsDirectoryPackage(package.Kind)
+                ? package.DisplayName
+                : Path.GetFileNameWithoutExtension(package.DisplayName);
         }
     }
 }

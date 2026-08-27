@@ -55,7 +55,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             var accessToken = await connectionService
                 .GetAccessTokenAsync(configuration, cancellationToken)
                 .ConfigureAwait(false);
-            var packages = new List<SourcePackage>();
+            var files = new List<CloudFileEntry>();
             var visitedFolders = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var location in request.Locations)
@@ -63,16 +63,16 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 ValidateObjectId(location.ObjectId);
                 await ScanFolderAsync(
                     accessToken,
-                    configuration.AccountId,
                     location.ObjectId,
                     location.DisplayPath,
                     location.Recursive,
                     visitedFolders,
-                    packages,
+                    files,
                     cancellationToken).ConfigureAwait(false);
             }
 
-            return packages
+            return packageDiscovery
+                .Discover(GoogleDriveProvider.ProviderId, configuration.AccountId, files)
                 .OrderBy(package => package.LogicalPath, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -181,12 +181,11 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
 
         private async Task ScanFolderAsync(
             string accessToken,
-            string accountId,
             string folderId,
             string displayPath,
             bool recursive,
             ISet<string> visitedFolders,
-            ICollection<SourcePackage> packages,
+            ICollection<CloudFileEntry> files,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -220,12 +219,11 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                 {
                     await ScanFolderAsync(
                         accessToken,
-                        accountId,
                         file.Id,
                         CombineLogicalPath(displayPath, file.Name),
                         true,
                         visitedFolders,
-                        packages,
+                        files,
                         cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -233,7 +231,7 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
             var regularFiles = folderFiles
                 .Where(file => !string.Equals(file.MimeType, FolderMimeType, StringComparison.Ordinal))
                 .ToList();
-            var cloudFiles = regularFiles.Select(file =>
+            foreach (var cloudFile in regularFiles.Select(file =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateListedFile(file);
@@ -245,13 +243,9 @@ namespace CloudSource.Playnite.Providers.GoogleDrive
                     file.Name,
                     ParseSize(logicalPath, file.Size),
                     ParseModifiedAt(logicalPath, file));
-            }).ToList();
-            foreach (var package in packageDiscovery.Discover(
-                GoogleDriveProvider.ProviderId,
-                accountId,
-                cloudFiles))
+            }))
             {
-                packages.Add(package);
+                files.Add(cloudFile);
             }
         }
 

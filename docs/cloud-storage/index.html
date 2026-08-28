@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GreenFuze Cloud Storage connects user-selected cloud folders to GreenFuze game-library applications.">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>GreenFuze Cloud Storage</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="icon" type="image/png" href="../assets/greenfuze-cloud-storage-oauth-120.png">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./">
+      <img src="../assets/greenfuze-cloud-storage-logo.png" alt="GreenFuze Cloud Storage logo" width="48" height="48">
+      <span>GreenFuze Cloud Storage <small>by GreenFuze</small></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#how-it-works">How it works</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="https://github.com/GreenFuze">Developer</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">A local cloud connector for GreenFuze game-library applications</p>
+        <h1>Your cloud folder, available in your game library.</h1>
+        <p class="lede">GreenFuze Cloud Storage lets you authorize Google Drive, choose a folder, discover its game packages recursively, and download a selected package to your own computer.</p>
+      </div>
+      <img class="hero-icon" src="../assets/greenfuze-cloud-storage-logo.png" alt="GreenFuze Cloud Storage logo" width="256" height="256">
+    </section>
+
+    <section class="section identity">
+      <div>
+        <p class="eyebrow">Application identity</p>
+        <h2>One connector, multiple GreenFuze clients</h2>
+      </div>
+      <div>
+        <p>GreenFuze Cloud Storage is the shared Google Drive integration for game-library software developed by <a href="https://github.com/GreenFuze">GreenFuze</a>. Its first publicly released client is the open-source <a href="https://github.com/GreenFuze/PlayniteCloudSource">Cloud Storage extension</a>.</p>
+        <p>The same GreenFuze name and cloud-and-library mark are shown on the Google OAuth consent screen. A client using this connector must perform the same user-visible authorization, folder selection, discovery, and download flow described here.</p>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="section">
+      <p class="eyebrow">How it works</p>
+      <h2>Explicit authorization and local use</h2>
+      <div class="cards">
+        <article>
+          <span class="number">1</span>
+          <h3>Authorize Google Drive</h3>
+          <p>The client opens Google's OAuth consent flow. GreenFuze never receives your Google password.</p>
+        </article>
+        <article>
+          <span class="number">2</span>
+          <h3>Choose a folder</h3>
+          <p>You browse your Drive and explicitly choose the concrete folder that the client will use as its game source.</p>
+        </article>
+        <article>
+          <span class="number">3</span>
+          <h3>Discover and download</h3>
+          <p>The local client reads that folder recursively, displays supported game packages, and downloads a package only when you request installation.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section split">
+      <div>
+        <p class="eyebrow">Google data use</p>
+        <h2>Read-only and user-directed</h2>
+      </div>
+      <div>
+        <p>GreenFuze Cloud Storage requests Google's restricted, read-only <code>drive.readonly</code> permission. The narrower per-file scope cannot enumerate the existing descendants of a folder selected inside a local desktop client, which prevents the connector from maintaining a recursively discovered library.</p>
+        <p>Although the OAuth scope technically permits reading the connected Drive, the released connector limits discovery and downloads to the folder you select. It never modifies or deletes Google Drive files.</p>
+        <p>Google Drive requests travel directly between your computer and Google. GreenFuze operates no storage backend for this connector and does not receive your files, OAuth tokens, or library data.</p>
+        <p><a href="privacy.html">Read the complete privacy policy</a>.</p>
+      </div>
+    </section>
+
+    <section class="section callout">
+      <div>
+        <h2>Open and inspectable</h2>
+        <p>The first released integration is open source under Apache-2.0, including its authorization, folder-selection, discovery, download, and local-storage behavior.</p>
+      </div>
+      <a class="button" href="https://github.com/GreenFuze/PlayniteCloudSource">Inspect the released integration</a>
+    </section>
+  </main>
+
+  <footer>
+    <span>GreenFuze Cloud Storage</span>
+    <nav aria-label="Legal navigation">
+      <a href="privacy.html">Privacy policy</a>
+      <a href="terms.html">Terms of service</a>
+      <a href="https://github.com/GreenFuze/PlayniteCloudSource/issues">Support</a>
+    </nav>
+  </footer>
+</body>
+</html>

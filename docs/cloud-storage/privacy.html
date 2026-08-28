@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy policy for GreenFuze Cloud Storage.">
+  <title>Privacy policy · GreenFuze Cloud Storage</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="icon" type="image/png" href="../assets/greenfuze-cloud-storage-oauth-120.png">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./"><img src="../assets/greenfuze-cloud-storage-logo.png" alt="GreenFuze Cloud Storage logo" width="48" height="48"><span>GreenFuze Cloud Storage <small>by GreenFuze</small></span></a>
+    <nav aria-label="Primary navigation"><a href="./">Home</a><a aria-current="page" href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="https://github.com/GreenFuze">Developer</a></nav>
+  </header>
+
+  <main class="document">
+    <p class="eyebrow">Effective August 28, 2026</p>
+    <h1>Privacy policy</h1>
+    <p class="lede">GreenFuze Cloud Storage is a local cloud connector used by GreenFuze game-library applications. GreenFuze operates no backend for the connector and does not collect, receive, sell, or share Google user data through it.</p>
+
+    <h2>Released clients</h2>
+    <p>The first released client is the open-source <a href="https://github.com/GreenFuze/PlayniteCloudSource">Cloud Storage extension</a>. Future GreenFuze clients using this OAuth application must follow the same data-use limits described in this policy. Their source or product information will be linked from this page when released.</p>
+
+    <h2>Google data accessed</h2>
+    <p>After you authorize Google Drive, the connector requests the restricted read-only <code>https://www.googleapis.com/auth/drive.readonly</code> scope. It uses this permission to:</p>
+    <ul>
+      <li>show folders while you choose a game-library source;</li>
+      <li>read folder and file metadata below the folder you selected;</li>
+      <li>recursively discover supported game packages in that folder; and</li>
+      <li>download a selected package to your computer when you request installation.</li>
+    </ul>
+    <p>The scope technically permits reading the connected Drive because Google's narrower per-file scope cannot enumerate existing descendants of a folder selected inside a local desktop client. The released connector limits its discovery and download operations to your selected folder. It does not request permission to write, modify, or delete Google Drive files.</p>
+
+    <h2>Local storage</h2>
+    <p>The client stores the provider account identifier, selected-folder identifier, OAuth authorization, installation records, and downloaded game files locally on your computer. The released Windows client protects OAuth tokens with Windows Data Protection API for the current Windows account and never stores your Google password.</p>
+
+    <h2>Data transfer, sharing, and limited use</h2>
+    <p>Authorization and file requests are sent directly between your computer and Google over HTTPS. The connector does not transmit Google user data or OAuth tokens to GreenFuze or another third party.</p>
+    <p>Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including its Limited Use requirements. Google user data is not sold; used for advertising, credit decisions, or surveillance; or used to train generalized artificial-intelligence or machine-learning models.</p>
+
+    <h2>Retention and deletion</h2>
+    <p>Disconnecting Google Drive in a client removes its locally stored authorization, account identity, and selected-folder configuration, and the released client also attempts to revoke the authorization with Google. You can independently revoke access at any time through <a href="https://myaccount.google.com/connections">Google Account connections</a>.</p>
+    <p>Downloaded files remain on your computer until you uninstall or delete them. Disconnecting the connector never deletes files from Google Drive.</p>
+
+    <h2>Contact</h2>
+    <p>Privacy questions and deletion concerns can be submitted through the public <a href="https://github.com/GreenFuze/PlayniteCloudSource/issues">support tracker</a> or sent to the developer contact address published on the Google OAuth consent screen.</p>
+  </main>
+
+  <footer><span>GreenFuze Cloud Storage</span><nav aria-label="Legal navigation"><a href="./">Home</a><a href="privacy.html">Privacy policy</a><a href="terms.html">Terms of service</a></nav></footer>
+</body>
+</html>
